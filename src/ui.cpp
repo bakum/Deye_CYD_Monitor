@@ -128,7 +128,7 @@ void uiBuild() {
     // Reboot / Reset WiFi
     lv_obj_t* btn_reboot = lv_btn_create(tab_settings);
     lv_obj_set_size(btn_reboot, 100, 35);
-    lv_obj_align(btn_reboot, LV_ALIGN_BOTTOM_LEFT, 20, -5);
+    lv_obj_align(btn_reboot, LV_ALIGN_BOTTOM_LEFT, 20, 0);
     lv_obj_add_event_cb(btn_reboot, btn_reboot_event_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t* label_btn_r = lv_label_create(btn_reboot);
     lv_label_set_text(label_btn_r, "Reboot");
@@ -136,7 +136,7 @@ void uiBuild() {
 
     lv_obj_t* btn_reset = lv_btn_create(tab_settings);
     lv_obj_set_size(btn_reset, 100, 35);
-    lv_obj_align(btn_reset, LV_ALIGN_BOTTOM_RIGHT, -20, -5);
+    lv_obj_align(btn_reset, LV_ALIGN_BOTTOM_RIGHT, -20, 0);
     lv_obj_set_style_bg_color(btn_reset, lv_palette_main(LV_PALETTE_RED), 0);
     lv_obj_add_event_cb(btn_reset, btn_reset_wifi_event_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t* label_btn_w = lv_label_create(btn_reset);
