@@ -352,6 +352,7 @@ void uiUpdateStatusBar() {
     }
 
     const char* wifi_display;
+    String ssidPart = "";
     if (WiFi.status() != WL_CONNECTED) {
         wifi_display = "No WiFi";
     } else {
@@ -360,7 +361,12 @@ void uiUpdateStatusBar() {
         else if (rssi > -70) wifi_display = "III";
         else if (rssi > -80) wifi_display = "II";
         else wifi_display = "I";
-        // SSID намеренно не выводим, чтобы строка статуса помещалась целиком.
+        String ssid = WiFi.SSID();
+        if (ssid.length() > 0) {
+            const int SSID_MAX_LEN = 12;
+            if (ssid.length() > SSID_MAX_LEN) ssid = ssid.substring(0, SSID_MAX_LEN - 1) + "…";
+            ssidPart = " " + ssid;
+        }
     }
     uint32_t invLastOk = inverterGetLastSuccessTimestamp();
     String invPart;
@@ -375,7 +381,7 @@ void uiUpdateStatusBar() {
     // Строка: батарея, мощность, дата+время, статус инвертора, уровень Wi‑Fi.
     String statusStr = String(bat_symbol) + " " + String(soc) + "% " + String(pwr_symbol) + "  " +
                       String(timeStr) + "  " + invPart + "  " +
-                      String(LV_SYMBOL_WIFI) + " " + String(wifi_display);
+                      String(LV_SYMBOL_WIFI) + ssidPart + " " + String(wifi_display);
     lv_label_set_text(label_status, statusStr.c_str());
 }
 
