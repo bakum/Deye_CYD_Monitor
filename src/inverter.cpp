@@ -151,6 +151,13 @@ void inverterHandleResponse() {
         if (startIdx > 0) {
             for (int i = 0; i < len - startIdx; i++) buffer[i] = buffer[i + startIdx];
             len -= startIdx;
+            if (len < 20) {
+                Serial.printf("Response too short after sync: %d bytes\n", len);
+                client.stop();
+                isRequestSent = false;
+                if (s_showLoader) s_showLoader(false);
+                return;
+            }
         } else {
             client.stop();
             isRequestSent = false;
