@@ -64,7 +64,7 @@ void loop() {
                 backlightSet(settingsGetBrightness());
                 inverterSetLastUpdate(0);
             }
-            lv_tabview_set_act(uiGetTabview(), 2, LV_ANIM_ON);
+            lv_tabview_set_act(uiGetTabview(), UI_TAB_SETTINGS, LV_ANIM_ON);
             Serial.println("BOOT: Settings");
         }
     } else {
@@ -98,7 +98,7 @@ void loop() {
     }
 
     // Опрос Modbus только при включённом экране и не на вкладке Settings.
-    if (settingsIsScreenOn() && lv_tabview_get_tab_act(uiGetTabview()) != 2 &&
+    if (settingsIsScreenOn() && lv_tabview_get_tab_act(uiGetTabview()) != UI_TAB_SETTINGS &&
         (millis() - inverterGetLastUpdate() > POLL_INTERVAL_MS)) {
         inverterSetLastUpdate(millis());
         inverterRequestData();

@@ -23,6 +23,15 @@ static lv_obj_t* label_load_val;
 static lv_obj_t* label_arrow_grid;
 static lv_obj_t* label_arrow_batt;
 static lv_obj_t* label_batt_val_t2;
+static lv_obj_t* label_source_val;
+static lv_obj_t* label_pv_total;
+static lv_obj_t* label_pv_day;
+static lv_obj_t* label_pv1_volts;
+static lv_obj_t* label_pv1_amps;
+static lv_obj_t* label_pv1_watts;
+static lv_obj_t* label_pv2_volts;
+static lv_obj_t* label_pv2_amps;
+static lv_obj_t* label_pv2_watts;
 static lv_obj_t* arc_loader;
 
 // --- Callbacks ---
@@ -67,6 +76,13 @@ static void btn_reset_wifi_event_cb(lv_event_t* e) {
     ESP.restart();
 }
 
+/** Компактная карточка без прокрутки — иначе на 320×240 контент не влезает. */
+static void styleCompactCard(lv_obj_t* card) {
+    lv_obj_set_scrollbar_mode(card, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_all(card, 4, 0);
+}
+
 void uiBuild() {
     static lv_style_t style_big_num;
     lv_style_init(&style_big_num);
@@ -79,6 +95,8 @@ void uiBuild() {
     tabview = lv_tabview_create(lv_scr_act(), LV_DIR_BOTTOM, 40);
     lv_obj_t* tab_batt = lv_tabview_add_tab(tabview, "Battery");
     lv_obj_t* tab_grid = lv_tabview_add_tab(tabview, "Grid/Home");
+    lv_obj_t* tab_solar = lv_tabview_add_tab(tabview, "Solar");
+    lv_obj_clear_flag(tab_solar, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t* tab_settings = lv_tabview_add_tab(tabview, "Settings");
 
     // Settings: brightness
@@ -198,52 +216,128 @@ void uiBuild() {
     lv_label_set_text(label_watts, "-- W");
     lv_obj_set_style_text_font(label_watts, &lv_font_montserrat_18, 0);
 
-    // Tab Grid
+    // Tab Grid: 2×2 карточки, без прокрутки вкладки.
+    lv_obj_clear_flag(tab_grid, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(tab_grid, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_style_pad_all(tab_grid, 2, 0);
+
     lv_obj_t* cont_g = lv_obj_create(tab_grid);
-    lv_obj_set_size(cont_g, 130, 80);
-    lv_obj_align(cont_g, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_set_size(cont_g, 128, 68);
+    lv_obj_align(cont_g, LV_ALIGN_TOP_LEFT, 4, 28);
+    styleCompactCard(cont_g);
     lv_obj_t* lbl_g_t = lv_label_create(cont_g);
-    lv_label_set_text(lbl_g_t, "GRID Power");
-    lv_obj_align(lbl_g_t, LV_ALIGN_TOP_MID, 0, -5);
+    lv_label_set_text(lbl_g_t, "GRID");
+    lv_obj_align(lbl_g_t, LV_ALIGN_TOP_MID, 0, 0);
     label_grid_val = lv_label_create(cont_g);
     lv_label_set_text(label_grid_val, "-- W");
     lv_obj_set_style_text_font(label_grid_val, &lv_font_montserrat_16, 0);
-    lv_obj_align(label_grid_val, LV_ALIGN_CENTER, 0, -5);
+    lv_obj_align(label_grid_val, LV_ALIGN_CENTER, 0, 2);
     label_grid_volts = lv_label_create(cont_g);
     lv_label_set_text(label_grid_volts, "-- V");
     lv_obj_align(label_grid_volts, LV_ALIGN_BOTTOM_MID, 0, 0);
 
     lv_obj_t* cont_l = lv_obj_create(tab_grid);
-    lv_obj_set_size(cont_l, 130, 80);
-    lv_obj_align(cont_l, LV_ALIGN_TOP_RIGHT, -10, 10);
+    lv_obj_set_size(cont_l, 128, 68);
+    lv_obj_align(cont_l, LV_ALIGN_TOP_RIGHT, -4, 28);
+    styleCompactCard(cont_l);
     lv_obj_t* lbl_l_t = lv_label_create(cont_l);
-    lv_label_set_text(lbl_l_t, "HOUSE Load");
-    lv_obj_align(lbl_l_t, LV_ALIGN_TOP_MID, 0, -5);
+    lv_label_set_text(lbl_l_t, "HOUSE");
+    lv_obj_align(lbl_l_t, LV_ALIGN_TOP_MID, 0, 0);
     label_load_val = lv_label_create(cont_l);
     lv_label_set_text(label_load_val, "-- W");
     lv_obj_add_style(label_load_val, &style_big_num, 0);
-    lv_obj_align(label_load_val, LV_ALIGN_CENTER, 0, 10);
+    lv_obj_align(label_load_val, LV_ALIGN_CENTER, 0, 6);
 
     label_arrow_grid = lv_label_create(tab_grid);
-    lv_obj_set_style_text_font(label_arrow_grid, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_font(label_arrow_grid, &lv_font_montserrat_16, 0);
     lv_label_set_text(label_arrow_grid, LV_SYMBOL_RIGHT);
-    lv_obj_align(label_arrow_grid, LV_ALIGN_TOP_MID, 0, 45);
+    lv_obj_align(label_arrow_grid, LV_ALIGN_TOP_MID, 0, 54);
+
+    lv_obj_t* cont_src = lv_obj_create(tab_grid);
+    lv_obj_set_size(cont_src, 128, 68);
+    lv_obj_align(cont_src, LV_ALIGN_TOP_LEFT, 4, 102);
+    styleCompactCard(cont_src);
+    lv_obj_t* lbl_src_t = lv_label_create(cont_src);
+    lv_label_set_text(lbl_src_t, "SOURCE");
+    lv_obj_align(lbl_src_t, LV_ALIGN_TOP_MID, 0, 0);
+    label_source_val = lv_label_create(cont_src);
+    lv_label_set_text(label_source_val, "--");
+    lv_obj_set_style_text_font(label_source_val, &lv_font_montserrat_16, 0);
+    lv_obj_align(label_source_val, LV_ALIGN_CENTER, 0, 6);
 
     lv_obj_t* cont_b_t2 = lv_obj_create(tab_grid);
-    lv_obj_set_size(cont_b_t2, 130, 80);
-    lv_obj_align(cont_b_t2, LV_ALIGN_TOP_RIGHT, -10, 110);
+    lv_obj_set_size(cont_b_t2, 128, 68);
+    lv_obj_align(cont_b_t2, LV_ALIGN_TOP_RIGHT, -4, 102);
+    styleCompactCard(cont_b_t2);
     lv_obj_t* lbl_b_t_t2 = lv_label_create(cont_b_t2);
     lv_label_set_text(lbl_b_t_t2, "BATTERY");
     lv_obj_align(lbl_b_t_t2, LV_ALIGN_TOP_MID, 0, 0);
     label_batt_val_t2 = lv_label_create(cont_b_t2);
     lv_label_set_text(label_batt_val_t2, "-- W");
     lv_obj_add_style(label_batt_val_t2, &style_big_num, 0);
-    lv_obj_align(label_batt_val_t2, LV_ALIGN_CENTER, 0, 10);
+    lv_obj_align(label_batt_val_t2, LV_ALIGN_CENTER, 0, 6);
 
     label_arrow_batt = lv_label_create(tab_grid);
-    lv_obj_set_style_text_font(label_arrow_batt, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_font(label_arrow_batt, &lv_font_montserrat_16, 0);
     lv_label_set_text(label_arrow_batt, LV_SYMBOL_UP);
-    lv_obj_align(label_arrow_batt, LV_ALIGN_TOP_RIGHT, -60, 90);
+    lv_obj_align(label_arrow_batt, LV_ALIGN_TOP_RIGHT, -58, 86);
+
+    // Tab Solar: суммарная мощность, выработка за день, стринги PV1/PV2
+    lv_obj_t* cont_pv_total = lv_obj_create(tab_solar);
+    lv_obj_set_size(cont_pv_total, 145, 70);
+    lv_obj_align(cont_pv_total, LV_ALIGN_TOP_LEFT, 5, 15);
+    lv_obj_t* lbl_pv_t = lv_label_create(cont_pv_total);
+    lv_label_set_text(lbl_pv_t, "PV Power");
+    lv_obj_align(lbl_pv_t, LV_ALIGN_TOP_MID, 0, -5);
+    label_pv_total = lv_label_create(cont_pv_total);
+    lv_label_set_text(label_pv_total, "-- W");
+    lv_obj_set_style_text_font(label_pv_total, &lv_font_montserrat_22, 0);
+    lv_obj_align(label_pv_total, LV_ALIGN_CENTER, 0, 8);
+
+    lv_obj_t* cont_pv_day = lv_obj_create(tab_solar);
+    lv_obj_set_size(cont_pv_day, 145, 70);
+    lv_obj_align(cont_pv_day, LV_ALIGN_TOP_RIGHT, -5, 15);
+    lv_obj_t* lbl_pv_d = lv_label_create(cont_pv_day);
+    lv_label_set_text(lbl_pv_d, "Today");
+    lv_obj_align(lbl_pv_d, LV_ALIGN_TOP_MID, 0, -5);
+    label_pv_day = lv_label_create(cont_pv_day);
+    lv_label_set_text(label_pv_day, "-- kWh");
+    lv_obj_add_style(label_pv_day, &style_big_num, 0);
+    lv_obj_align(label_pv_day, LV_ALIGN_CENTER, 0, 8);
+
+    lv_obj_t* cont_pv1 = lv_obj_create(tab_solar);
+    lv_obj_set_size(cont_pv1, 145, 90);
+    lv_obj_align(cont_pv1, LV_ALIGN_TOP_LEFT, 5, 95);
+    lv_obj_t* lbl_pv1 = lv_label_create(cont_pv1);
+    lv_label_set_text(lbl_pv1, "PV1");
+    lv_obj_align(lbl_pv1, LV_ALIGN_TOP_MID, 0, -5);
+    label_pv1_watts = lv_label_create(cont_pv1);
+    lv_label_set_text(label_pv1_watts, "-- W");
+    lv_obj_add_style(label_pv1_watts, &style_big_num, 0);
+    lv_obj_align(label_pv1_watts, LV_ALIGN_CENTER, 0, -2);
+    label_pv1_volts = lv_label_create(cont_pv1);
+    lv_label_set_text(label_pv1_volts, "-- V");
+    lv_obj_align(label_pv1_volts, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    label_pv1_amps = lv_label_create(cont_pv1);
+    lv_label_set_text(label_pv1_amps, "-- A");
+    lv_obj_align(label_pv1_amps, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+
+    lv_obj_t* cont_pv2 = lv_obj_create(tab_solar);
+    lv_obj_set_size(cont_pv2, 145, 90);
+    lv_obj_align(cont_pv2, LV_ALIGN_TOP_RIGHT, -5, 95);
+    lv_obj_t* lbl_pv2 = lv_label_create(cont_pv2);
+    lv_label_set_text(lbl_pv2, "PV2");
+    lv_obj_align(lbl_pv2, LV_ALIGN_TOP_MID, 0, -5);
+    label_pv2_watts = lv_label_create(cont_pv2);
+    lv_label_set_text(label_pv2_watts, "-- W");
+    lv_obj_add_style(label_pv2_watts, &style_big_num, 0);
+    lv_obj_align(label_pv2_watts, LV_ALIGN_CENTER, 0, -2);
+    label_pv2_volts = lv_label_create(cont_pv2);
+    lv_label_set_text(label_pv2_volts, "-- V");
+    lv_obj_align(label_pv2_volts, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    label_pv2_amps = lv_label_create(cont_pv2);
+    lv_label_set_text(label_pv2_amps, "-- A");
+    lv_obj_align(label_pv2_amps, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
 
     // Top layer: loader + status
     lv_obj_t* top_layer = lv_layer_top();
@@ -260,7 +354,7 @@ void uiBuild() {
     lv_timer_create([](lv_timer_t* t) { uiUpdateStatusBar(); }, 1000, NULL);
 
     lv_obj_t* tab_btns = lv_tabview_get_tab_btns(tabview);
-    lv_btnmatrix_set_btn_ctrl(tab_btns, 2, LV_BTNMATRIX_CTRL_HIDDEN);
+    lv_btnmatrix_set_btn_ctrl(tab_btns, UI_TAB_SETTINGS, LV_BTNMATRIX_CTRL_HIDDEN);
 }
 
 void uiUpdate() {
@@ -272,6 +366,14 @@ void uiUpdate() {
     int16_t gridPwr = inverterGetGridPower();
     float gridV = inverterGetGridVolts();
     uint16_t loadPwr = inverterGetLoadPower();
+    uint32_t pvTotal = inverterGetPvTotalPower();
+    float pvDay = inverterGetDayPvEnergy();
+    float pv1V = inverterGetPv1Volts();
+    float pv1A = inverterGetPv1Current();
+    uint16_t pv1W = inverterGetPv1Power();
+    float pv2V = inverterGetPv2Volts();
+    float pv2A = inverterGetPv2Current();
+    uint16_t pv2W = inverterGetPv2Power();
 
     lv_arc_set_value(arc_soc, soc);
     lv_label_set_text(label_soc_val, (String(soc) + "%").c_str());
@@ -326,6 +428,40 @@ void uiUpdate() {
         lv_label_set_text(label_arrow_batt, LV_SYMBOL_MINUS);
         lv_obj_set_style_text_color(label_arrow_batt, lv_palette_main(LV_PALETTE_GREY), 0);
     }
+
+    // Источники, которые сейчас кормят дом (не заряд батареи и не экспорт в сеть).
+    const bool fromSolar = pvTotal > 10;
+    const bool fromBatt = battPwr > 10;
+    const bool fromGrid = gridPwr > 10;
+    char srcText[28] = "Idle";
+    if (fromSolar || fromBatt || fromGrid) {
+        int n = 0;
+        if (fromSolar) n += snprintf(srcText + n, sizeof(srcText) - (size_t)n, "%sPV", n ? "+" : "");
+        if (fromBatt) n += snprintf(srcText + n, sizeof(srcText) - (size_t)n, "%sBat", n ? "+" : "");
+        if (fromGrid) snprintf(srcText + n, sizeof(srcText) - (size_t)n, "%sGrid", n ? "+" : "");
+    }
+    lv_label_set_text(label_source_val, srcText);
+    if (fromGrid)
+        lv_obj_set_style_text_color(label_source_val, lv_palette_main(LV_PALETTE_RED), 0);
+    else if (fromSolar)
+        lv_obj_set_style_text_color(label_source_val, lv_palette_main(LV_PALETTE_ORANGE), 0);
+    else if (fromBatt)
+        lv_obj_set_style_text_color(label_source_val, lv_palette_main(LV_PALETTE_ORANGE), 0);
+    else
+        lv_obj_set_style_text_color(label_source_val, lv_palette_main(LV_PALETTE_GREY), 0);
+
+    lv_label_set_text(label_pv_total, (String(pvTotal) + " W").c_str());
+    if (pvTotal > 10)
+        lv_obj_set_style_text_color(label_pv_total, lv_palette_main(LV_PALETTE_ORANGE), 0);
+    else
+        lv_obj_set_style_text_color(label_pv_total, lv_palette_main(LV_PALETTE_GREY), 0);
+    lv_label_set_text(label_pv_day, (String(pvDay, 1) + " kWh").c_str());
+    lv_label_set_text(label_pv1_watts, (String(pv1W) + " W").c_str());
+    lv_label_set_text(label_pv1_volts, (String(pv1V, 1) + " V").c_str());
+    lv_label_set_text(label_pv1_amps, (String(pv1A, 1) + " A").c_str());
+    lv_label_set_text(label_pv2_watts, (String(pv2W) + " W").c_str());
+    lv_label_set_text(label_pv2_volts, (String(pv2V, 1) + " V").c_str());
+    lv_label_set_text(label_pv2_amps, (String(pv2A, 1) + " A").c_str());
 }
 
 void uiUpdateStatusBar() {

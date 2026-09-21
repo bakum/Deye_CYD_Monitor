@@ -22,6 +22,13 @@ static int16_t battPower = 0;
 static int16_t gridPower = 0;
 static float gridVolts = 0.0f;
 static uint16_t loadPower = 0;
+static float pv1Volts = 0.0f;
+static float pv1Current = 0.0f;
+static uint16_t pv1Power = 0;
+static float pv2Volts = 0.0f;
+static float pv2Current = 0.0f;
+static uint16_t pv2Power = 0;
+static float dayPvEnergy = 0.0f;
 
 static uint8_t calculateChecksum(uint8_t* buf, int len) {
     uint8_t checksum = 0;
@@ -199,10 +206,18 @@ void inverterHandleResponse() {
     gridPower = getRegSigned(buffer, dataOffset, ADDR_GRID_POWER);
     gridVolts = getReg(buffer, dataOffset, ADDR_GRID_VOLTAGE) / 10.0f;
     loadPower = getReg(buffer, dataOffset, ADDR_LOAD_POWER);
+    pv1Volts = getReg(buffer, dataOffset, ADDR_PV1_VOLTAGE) / 10.0f;
+    pv1Current = getReg(buffer, dataOffset, ADDR_PV1_CURRENT) / 10.0f;
+    pv1Power = getReg(buffer, dataOffset, ADDR_PV1_POWER);
+    pv2Volts = getReg(buffer, dataOffset, ADDR_PV2_VOLTAGE) / 10.0f;
+    pv2Current = getReg(buffer, dataOffset, ADDR_PV2_CURRENT) / 10.0f;
+    pv2Power = getReg(buffer, dataOffset, ADDR_PV2_POWER);
+    dayPvEnergy = getReg(buffer, dataOffset, ADDR_DAY_PV_ENERGY) / 10.0f;
 
     lastSuccessTimestamp = millis();
-    Serial.printf("[%lu] Data: SOC=%d%%, V=%.2f, A=%.2f, P=%dW, T=%.1fC, Grid=%dW, Load=%dW\n",
-        (unsigned long)millis(), battSOC, battVolts, battCurrent, battPower, battTemp, gridPower, loadPower);
+    Serial.printf("[%lu] Data: SOC=%d%%, V=%.2f, A=%.2f, P=%dW, T=%.1fC, Grid=%dW, Load=%dW, PV=%luW (PV1=%uW PV2=%uW), Day=%.1fkWh\n",
+        (unsigned long)millis(), battSOC, battVolts, battCurrent, battPower, battTemp, gridPower, loadPower,
+        (unsigned long)((uint32_t)pv1Power + (uint32_t)pv2Power), pv1Power, pv2Power, dayPvEnergy);
 
     isRequestSent = false;
     if (s_showLoader) s_showLoader(false);
@@ -228,3 +243,11 @@ int16_t inverterGetBattPower() { return battPower; }
 int16_t inverterGetGridPower() { return gridPower; }
 float inverterGetGridVolts() { return gridVolts; }
 uint16_t inverterGetLoadPower() { return loadPower; }
+float inverterGetPv1Volts() { return pv1Volts; }
+float inverterGetPv1Current() { return pv1Current; }
+uint16_t inverterGetPv1Power() { return pv1Power; }
+float inverterGetPv2Volts() { return pv2Volts; }
+float inverterGetPv2Current() { return pv2Current; }
+uint16_t inverterGetPv2Power() { return pv2Power; }
+uint32_t inverterGetPvTotalPower() { return (uint32_t)pv1Power + (uint32_t)pv2Power; }
+float inverterGetDayPvEnergy() { return dayPvEnergy; }

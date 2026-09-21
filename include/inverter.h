@@ -39,5 +39,13 @@ int16_t inverterGetBattPower();
 int16_t inverterGetGridPower();
 float inverterGetGridVolts();
 uint16_t inverterGetLoadPower();
+float inverterGetPv1Volts();
+float inverterGetPv1Current();
+uint16_t inverterGetPv1Power();
+float inverterGetPv2Volts();
+float inverterGetPv2Current();
+uint16_t inverterGetPv2Power();
+uint32_t inverterGetPvTotalPower();
+float inverterGetDayPvEnergy();
 
 #endif

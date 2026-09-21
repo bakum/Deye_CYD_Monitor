@@ -30,12 +30,19 @@
     const uint16_t REG_BLOCK_START = 103;
     const uint16_t REG_BLOCK_LEN   = 89; 
 
+    const uint16_t ADDR_DAY_PV_ENERGY   = 108;
+    const uint16_t ADDR_PV1_VOLTAGE     = 109;
+    const uint16_t ADDR_PV1_CURRENT     = 110;
+    const uint16_t ADDR_PV2_VOLTAGE     = 111;
+    const uint16_t ADDR_PV2_CURRENT     = 112;
     const uint16_t ADDR_GRID_POWER      = 169;
     const uint16_t ADDR_GRID_VOLTAGE    = 150;
     const uint16_t ADDR_LOAD_POWER      = 178;
     const uint16_t ADDR_BATT_TEMP       = 182;
     const uint16_t ADDR_BATT_VOLTAGE    = 183;
     const uint16_t ADDR_BATT_SOC        = 184;
+    const uint16_t ADDR_PV1_POWER       = 186;
+    const uint16_t ADDR_PV2_POWER       = 187;
     const uint16_t ADDR_BATT_POWER      = 190;
     const uint16_t ADDR_BATT_CURRENT    = 191;
 
