@@ -17,6 +17,7 @@ static lv_obj_t* label_volts;
 static lv_obj_t* label_amps;
 static lv_obj_t* label_watts;
 static lv_obj_t* label_temp_val;
+static lv_obj_t* label_batt_pv;
 static lv_obj_t* label_grid_val;
 static lv_obj_t* label_grid_volts;
 static lv_obj_t* label_load_val;
@@ -185,6 +186,14 @@ void uiBuild() {
     lv_label_set_text(label_temp_val, "-- °C");
     lv_obj_set_style_text_font(label_temp_val, &lv_font_montserrat_16, 0);
     lv_obj_align_to(label_temp_val, arc_soc, LV_ALIGN_CENTER, -5, 15);
+
+    label_batt_pv = lv_label_create(tab_batt);
+    lv_label_set_text(label_batt_pv, "PV 0W");
+    lv_obj_set_style_text_font(label_batt_pv, &lv_font_montserrat_14, 0);
+    lv_obj_set_width(label_batt_pv, 90);
+    lv_obj_set_style_text_align(label_batt_pv, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(label_batt_pv, LV_LABEL_LONG_CLIP);
+    lv_obj_align_to(label_batt_pv, arc_soc, LV_ALIGN_CENTER, -5, 36);
 
     lv_obj_t* col_params = lv_obj_create(tab_batt);
     lv_obj_set_size(col_params, 140, 170);
@@ -401,6 +410,13 @@ void uiUpdate() {
         lv_obj_set_style_text_color(label_temp_val, lv_palette_main(LV_PALETTE_RED), 0);
     else
         lv_obj_set_style_text_color(label_temp_val, lv_color_black(), 0);
+
+    lv_label_set_text(label_batt_pv, (String("PV ") + String(pvTotal) + "W").c_str());
+    lv_obj_set_width(label_batt_pv, 90);
+    if (pvTotal > 10)
+        lv_obj_set_style_text_color(label_batt_pv, lv_palette_main(LV_PALETTE_ORANGE), 0);
+    else
+        lv_obj_set_style_text_color(label_batt_pv, lv_palette_main(LV_PALETTE_GREY), 0);
 
     lv_label_set_text(label_grid_val, (String(gridPwr) + " W").c_str());
     lv_label_set_text(label_grid_volts, (String(gridV, 1) + " V").c_str());
