@@ -5,3 +5,7 @@
 .vscode/ipch
 .vscode
 build/
+.claude/settings.local.json
+platformio-device-monitor-*.log
+.claude/
+.mcp.json
