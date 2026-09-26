@@ -61,6 +61,51 @@ static int16_t getRegSigned(uint8_t* buffer, int start_offset, int reg_addr) {
     return (int16_t)getReg(buffer, start_offset, reg_addr);
 }
 
+// Значения из одного ответа — применяются только если весь кадр прошёл проверки.
+struct InverterSample {
+    uint16_t battSOC;
+    float battVolts, battTemp, battCurrent;
+    int16_t battPower, gridPower;
+    float gridVolts;
+    uint16_t loadPower;
+    float pv1Volts, pv1Current;
+    uint16_t pv1Power;
+    float pv2Volts, pv2Current;
+    uint16_t pv2Power;
+    float dayPvEnergy;
+};
+
+/** Проверка правдоподобия. Возвращает nullptr, если всё в норме, иначе — что не так. */
+static const char* checkPlausibility(const InverterSample& s) {
+    if (s.battSOC > 100) return "battery SOC";
+    if (s.battVolts < 0.0f || s.battVolts > 70.0f) return "battery voltage";
+    if (s.battTemp < -40.0f || s.battTemp > 100.0f) return "battery temperature";
+    if (fabsf(s.battCurrent) > 300.0f) return "battery current";
+    if (abs(s.battPower) > 15000) return "battery power";
+    if (abs(s.gridPower) > 25000) return "grid power";
+    if (s.gridVolts < 0.0f || s.gridVolts > 300.0f) return "grid voltage";
+    if (s.loadPower > 25000) return "load power";
+    if (s.pv1Volts > 600.0f || s.pv2Volts > 600.0f) return "PV voltage";
+    if (s.pv1Current > 30.0f || s.pv2Current > 30.0f) return "PV current";
+    if (s.pv1Power > 15000 || s.pv2Power > 15000) return "PV power";
+    if (s.dayPvEnergy > 200.0f) return "day PV energy";
+
+    // Закон Ома для батареи: |V*I| должно быть близко к |P| (по модулю — чтобы не зависеть от знаков).
+    float pCalc = fabsf(s.battVolts * s.battCurrent);
+    float pReported = (float)abs(s.battPower);
+    if (fabsf(pCalc - pReported) > fmaxf(300.0f, 0.3f * fmaxf(pCalc, pReported))) return "battery V*I != P";
+
+    return nullptr;
+}
+
+/** Отбросить кадр: закрыть соединение, старые значения на экране остаются. */
+static void dropFrame(const char* reason) {
+    Serial.printf("[%lu] Frame dropped: %s\n", (unsigned long)millis(), reason);
+    client.stop();
+    isRequestSent = false;
+    if (s_showLoader) s_showLoader(false);
+}
+
 void inverterSetCallbacks(InverterShowLoaderFn showLoader, InverterUpdateUiFn updateUi) {
     s_showLoader = showLoader;
     s_updateUi = updateUi;
@@ -198,21 +243,60 @@ void inverterHandleResponse() {
         return;
     }
 
-    battSOC = getReg(buffer, dataOffset, ADDR_BATT_SOC);
-    battVolts = getReg(buffer, dataOffset, ADDR_BATT_VOLTAGE) / 100.0f;
-    battTemp = (getReg(buffer, dataOffset, ADDR_BATT_TEMP) - 1000) / 10.0f;
-    battPower = getRegSigned(buffer, dataOffset, ADDR_BATT_POWER);
-    battCurrent = getRegSigned(buffer, dataOffset, ADDR_BATT_CURRENT) / 100.0f;
-    gridPower = getRegSigned(buffer, dataOffset, ADDR_GRID_POWER);
-    gridVolts = getReg(buffer, dataOffset, ADDR_GRID_VOLTAGE) / 10.0f;
-    loadPower = getReg(buffer, dataOffset, ADDR_LOAD_POWER);
-    pv1Volts = getReg(buffer, dataOffset, ADDR_PV1_VOLTAGE) / 10.0f;
-    pv1Current = getReg(buffer, dataOffset, ADDR_PV1_CURRENT) / 10.0f;
-    pv1Power = getReg(buffer, dataOffset, ADDR_PV1_POWER);
-    pv2Volts = getReg(buffer, dataOffset, ADDR_PV2_VOLTAGE) / 10.0f;
-    pv2Current = getReg(buffer, dataOffset, ADDR_PV2_CURRENT) / 10.0f;
-    pv2Power = getReg(buffer, dataOffset, ADDR_PV2_POWER);
-    dayPvEnergy = getReg(buffer, dataOffset, ADDR_DAY_PV_ENERGY) / 10.0f;
+    // В кадре должен быть весь блок регистров + Modbus CRC (2 байта) до хвоста V5 (checksum + 0x15).
+    const int byteCount = buffer[dataOffset - 1];
+    if (byteCount < REG_BLOCK_LEN * 2 || dataOffset + byteCount + 2 > len - 2) {
+        dropFrame("incomplete Modbus data");
+        return;
+    }
+    uint16_t rxCrc = (uint16_t)(buffer[dataOffset + byteCount] | (buffer[dataOffset + byteCount + 1] << 8));
+    if (rxCrc != calculateCRC16(&buffer[dataOffset - 3], byteCount + 3)) {
+        dropFrame("Modbus CRC mismatch");
+        return;
+    }
+
+    InverterSample s;
+    s.battSOC = getReg(buffer, dataOffset, ADDR_BATT_SOC);
+    s.battVolts = getReg(buffer, dataOffset, ADDR_BATT_VOLTAGE) / 100.0f;
+    s.battTemp = (getReg(buffer, dataOffset, ADDR_BATT_TEMP) - 1000) / 10.0f;
+    s.battPower = getRegSigned(buffer, dataOffset, ADDR_BATT_POWER);
+    s.battCurrent = getRegSigned(buffer, dataOffset, ADDR_BATT_CURRENT) / 100.0f;
+    s.gridPower = getRegSigned(buffer, dataOffset, ADDR_GRID_POWER);
+    s.gridVolts = getReg(buffer, dataOffset, ADDR_GRID_VOLTAGE) / 10.0f;
+    s.loadPower = getReg(buffer, dataOffset, ADDR_LOAD_POWER);
+    s.pv1Volts = getReg(buffer, dataOffset, ADDR_PV1_VOLTAGE) / 10.0f;
+    s.pv1Current = getReg(buffer, dataOffset, ADDR_PV1_CURRENT) / 10.0f;
+    s.pv1Power = getReg(buffer, dataOffset, ADDR_PV1_POWER);
+    s.pv2Volts = getReg(buffer, dataOffset, ADDR_PV2_VOLTAGE) / 10.0f;
+    s.pv2Current = getReg(buffer, dataOffset, ADDR_PV2_CURRENT) / 10.0f;
+    s.pv2Power = getReg(buffer, dataOffset, ADDR_PV2_POWER);
+    s.dayPvEnergy = getReg(buffer, dataOffset, ADDR_DAY_PV_ENERGY) / 10.0f;
+
+    const char* implausible = checkPlausibility(s);
+    if (implausible) {
+        Serial.printf("[%lu] Implausible: SOC=%u V=%.2f A=%.2f P=%dW T=%.1f Grid=%dW/%.1fV Load=%uW PV1=%.1fV/%.1fA/%uW PV2=%.1fV/%.1fA/%uW Day=%.1f\n",
+            (unsigned long)millis(), s.battSOC, s.battVolts, s.battCurrent, s.battPower, s.battTemp,
+            s.gridPower, s.gridVolts, s.loadPower, s.pv1Volts, s.pv1Current, s.pv1Power,
+            s.pv2Volts, s.pv2Current, s.pv2Power, s.dayPvEnergy);
+        dropFrame(implausible);
+        return;
+    }
+
+    battSOC = s.battSOC;
+    battVolts = s.battVolts;
+    battTemp = s.battTemp;
+    battPower = s.battPower;
+    battCurrent = s.battCurrent;
+    gridPower = s.gridPower;
+    gridVolts = s.gridVolts;
+    loadPower = s.loadPower;
+    pv1Volts = s.pv1Volts;
+    pv1Current = s.pv1Current;
+    pv1Power = s.pv1Power;
+    pv2Volts = s.pv2Volts;
+    pv2Current = s.pv2Current;
+    pv2Power = s.pv2Power;
+    dayPvEnergy = s.dayPvEnergy;
 
     lastSuccessTimestamp = millis();
     Serial.printf("[%lu] Data: SOC=%d%%, V=%.2f, A=%.2f, P=%dW, T=%.1fC, Grid=%dW, Load=%dW, PV=%luW (PV1=%uW PV2=%uW), Day=%.1fkWh\n",
