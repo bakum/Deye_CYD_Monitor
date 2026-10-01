@@ -188,7 +188,7 @@ void uiBuild() {
     lv_obj_align_to(label_temp_val, arc_soc, LV_ALIGN_CENTER, -5, 15);
 
     label_batt_pv = lv_label_create(tab_batt);
-    lv_label_set_text(label_batt_pv, "PV 0.00kW");
+    lv_label_set_text(label_batt_pv, "PV --kWh");
     lv_obj_set_style_text_font(label_batt_pv, &lv_font_montserrat_14, 0);
     lv_obj_set_width(label_batt_pv, 90);
     lv_obj_set_style_text_align(label_batt_pv, LV_TEXT_ALIGN_CENTER, 0);
@@ -411,7 +411,7 @@ void uiUpdate() {
     else
         lv_obj_set_style_text_color(label_temp_val, lv_color_black(), 0);
 
-    lv_label_set_text(label_batt_pv, (String("PV ") + String(pvTotal / 1000.0f, 2) + "kW").c_str());
+    lv_label_set_text(label_batt_pv, (String("PV ") + String(pvDay, 1) + "kWh").c_str());
     lv_obj_set_width(label_batt_pv, 90);
     if (pvTotal > 10)
         lv_obj_set_style_text_color(label_batt_pv, lv_palette_main(LV_PALETTE_ORANGE), 0);
