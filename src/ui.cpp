@@ -35,6 +35,11 @@ static lv_obj_t* label_pv2_amps;
 static lv_obj_t* label_pv2_watts;
 static lv_obj_t* arc_loader;
 
+/** Оранжевый для текста: темнее палитрового, чтобы читался на белом фоне. */
+static lv_color_t colorOrangeText() {
+    return lv_palette_darken(LV_PALETTE_ORANGE, 3);
+}
+
 // --- Callbacks ---
 static void slider_event_cb(lv_event_t* e) {
     lv_obj_t* slider = lv_event_get_target(e);
@@ -188,9 +193,9 @@ void uiBuild() {
     lv_obj_align_to(label_temp_val, arc_soc, LV_ALIGN_CENTER, -5, 15);
 
     label_batt_pv = lv_label_create(tab_batt);
-    lv_label_set_text(label_batt_pv, "PV --kWh");
+    lv_label_set_text(label_batt_pv, "PV --kWh --kW");
     lv_obj_set_style_text_font(label_batt_pv, &lv_font_montserrat_14, 0);
-    lv_obj_set_width(label_batt_pv, 90);
+    lv_obj_set_width(label_batt_pv, 140);
     lv_obj_set_style_text_align(label_batt_pv, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(label_batt_pv, LV_LABEL_LONG_CLIP);
     lv_obj_align_to(label_batt_pv, arc_soc, LV_ALIGN_CENTER, 0, 60);
@@ -411,10 +416,10 @@ void uiUpdate() {
     else
         lv_obj_set_style_text_color(label_temp_val, lv_color_black(), 0);
 
-    lv_label_set_text(label_batt_pv, (String("PV ") + String(pvDay, 1) + "kWh").c_str());
-    lv_obj_set_width(label_batt_pv, 90);
+    lv_label_set_text(label_batt_pv, (String("PV ") + String(pvDay, 1) + "kWh " + String(pvTotal / 1000.0f, 1) + "kW").c_str());
+    lv_obj_set_width(label_batt_pv, 140);
     if (pvTotal > 10)
-        lv_obj_set_style_text_color(label_batt_pv, lv_palette_main(LV_PALETTE_ORANGE), 0);
+        lv_obj_set_style_text_color(label_batt_pv, colorOrangeText(), 0);
     else
         lv_obj_set_style_text_color(label_batt_pv, lv_palette_main(LV_PALETTE_GREY), 0);
 
@@ -436,7 +441,7 @@ void uiUpdate() {
 
     if (battPwr > 10) {
         lv_label_set_text(label_arrow_batt, LV_SYMBOL_UP);
-        lv_obj_set_style_text_color(label_arrow_batt, lv_palette_main(LV_PALETTE_ORANGE), 0);
+        lv_obj_set_style_text_color(label_arrow_batt, colorOrangeText(), 0);
     } else if (battPwr < -10) {
         lv_label_set_text(label_arrow_batt, LV_SYMBOL_DOWN);
         lv_obj_set_style_text_color(label_arrow_batt, lv_palette_main(LV_PALETTE_GREEN), 0);
@@ -460,15 +465,15 @@ void uiUpdate() {
     if (fromGrid)
         lv_obj_set_style_text_color(label_source_val, lv_palette_main(LV_PALETTE_RED), 0);
     else if (fromSolar)
-        lv_obj_set_style_text_color(label_source_val, lv_palette_main(LV_PALETTE_ORANGE), 0);
+        lv_obj_set_style_text_color(label_source_val, colorOrangeText(), 0);
     else if (fromBatt)
-        lv_obj_set_style_text_color(label_source_val, lv_palette_main(LV_PALETTE_ORANGE), 0);
+        lv_obj_set_style_text_color(label_source_val, colorOrangeText(), 0);
     else
         lv_obj_set_style_text_color(label_source_val, lv_palette_main(LV_PALETTE_GREY), 0);
 
     lv_label_set_text(label_pv_total, (String(pvTotal) + " W").c_str());
     if (pvTotal > 10)
-        lv_obj_set_style_text_color(label_pv_total, lv_palette_main(LV_PALETTE_ORANGE), 0);
+        lv_obj_set_style_text_color(label_pv_total, colorOrangeText(), 0);
     else
         lv_obj_set_style_text_color(label_pv_total, lv_palette_main(LV_PALETTE_GREY), 0);
     lv_label_set_text(label_pv_day, (String(pvDay, 1) + " kWh").c_str());
