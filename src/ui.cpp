@@ -40,6 +40,7 @@ static lv_obj_t* label_flow_grid;
 static lv_obj_t* label_flow_grid_volts;
 static lv_obj_t* label_flow_batt;
 static lv_obj_t* label_flow_soc;
+static lv_obj_t* label_flow_batt_temp;
 static lv_obj_t* label_flow_load;
 static lv_obj_t* label_flow_home;
 
@@ -223,6 +224,29 @@ static String flowFormatPower(int32_t w) {
     return String(w / 1000.0f, 2) + " kW";
 }
 
+/** Тап по узлу или его подписи открывает вкладку с подробностями (индекс в user_data). */
+static void flow_node_click_cb(lv_event_t* e) {
+    lv_tabview_set_act(tabview, (uint32_t)(uintptr_t)lv_event_get_user_data(e), LV_ANIM_ON);
+}
+
+/** Сделать объект кнопкой перехода на вкладку. Дети (иконка, текст) передают нажатие родителю. */
+static void flowMakeTapTarget(lv_obj_t* obj, UiTabIndex tab_idx) {
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(obj, flow_node_click_cb, LV_EVENT_CLICKED, (void*)(uintptr_t)tab_idx);
+    for (uint32_t i = 0; i < lv_obj_get_child_cnt(obj); i++) {
+        lv_obj_t* child = lv_obj_get_child(obj, i);
+        lv_obj_clear_flag(child, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(child, LV_OBJ_FLAG_EVENT_BUBBLE);
+    }
+}
+
+/** Плашка-узел как кнопка: зона нажатия шире на 10 px, при нажатии фон темнеет. */
+static void flowMakeTapNode(lv_obj_t* box, UiTabIndex tab_idx) {
+    flowMakeTapTarget(box, tab_idx);
+    lv_obj_set_ext_click_area(box, 10);
+    lv_obj_set_style_bg_color(box, lv_palette_lighten(LV_PALETTE_GREY, 2), LV_STATE_PRESSED);
+}
+
 static void buildFlowTab(lv_obj_t* tab) {
     lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(tab, LV_SCROLLBAR_MODE_OFF);
@@ -243,12 +267,13 @@ static void buildFlowTab(lv_obj_t* tab) {
     flowMakeLine(tab, flow_home, &style_flow_line);
 
     lv_color_t icon_dark = lv_palette_darken(LV_PALETTE_GREY, 4);
-    flowMakeIconNode(tab, 8, 24, &flow_icon_pv, colorOrangeText());
-    flowMakeIconNode(tab, 262, 24, &flow_icon_grid, icon_dark);
+    flowMakeTapNode(flowMakeIconNode(tab, 8, 24, &flow_icon_pv, colorOrangeText()), UI_TAB_SOLAR);
+    flowMakeTapNode(flowMakeIconNode(tab, 262, 24, &flow_icon_grid, icon_dark), UI_TAB_GRID);
     label_flow_soc = flowMakeNode(tab, 8, 135, "--%");
     lv_obj_set_style_text_font(label_flow_soc, &lv_font_montserrat_16, 0);
-    flowMakeIconNode(tab, 185, 142, &flow_icon_load, icon_dark);
-    flowMakeIconNode(tab, 262, 142, &flow_icon_home, icon_dark);
+    flowMakeTapNode(lv_obj_get_parent(label_flow_soc), UI_TAB_BATTERY);
+    flowMakeTapNode(flowMakeIconNode(tab, 185, 142, &flow_icon_load, icon_dark), UI_TAB_GRID);
+    flowMakeTapNode(flowMakeIconNode(tab, 262, 142, &flow_icon_home, icon_dark), UI_TAB_GRID);
 
     // Инвертор чуть крупнее остальных узлов.
     lv_obj_t* box_inv = flowMakeIconNode(tab, 140, 85, &flow_icon_inverter, lv_palette_main(LV_PALETTE_BLUE));
@@ -263,8 +288,20 @@ static void buildFlowTab(lv_obj_t* tab) {
     lv_obj_set_style_text_color(label_flow_grid_volts, lv_palette_main(LV_PALETTE_GREY), 0);
     lv_label_set_text(label_flow_grid_volts, "-- V");
     label_flow_batt = flowMakeValue(tab, 8, 165, LV_TEXT_ALIGN_LEFT);
+    // Температура батареи над её плашкой (ниже места нет — таббар).
+    label_flow_batt_temp = flowMakeValue(tab, 8, 115, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_width(label_flow_batt_temp, 80);
+    lv_obj_set_style_text_font(label_flow_batt_temp, &lv_font_montserrat_14, 0);
+    lv_label_set_text(label_flow_batt_temp, "-- °C");
     label_flow_load = flowMakeValue(tab, 160, 172, LV_TEXT_ALIGN_CENTER);
     label_flow_home = flowMakeValue(tab, 212, 172, LV_TEXT_ALIGN_RIGHT);
+    flowMakeTapTarget(label_flow_pv, UI_TAB_SOLAR);
+    flowMakeTapTarget(label_flow_grid, UI_TAB_GRID);
+    flowMakeTapTarget(label_flow_grid_volts, UI_TAB_GRID);
+    flowMakeTapTarget(label_flow_batt, UI_TAB_BATTERY);
+    flowMakeTapTarget(label_flow_batt_temp, UI_TAB_BATTERY);
+    flowMakeTapTarget(label_flow_load, UI_TAB_GRID);
+    flowMakeTapTarget(label_flow_home, UI_TAB_GRID);
 
     flowMakeDot(tab, flow_pv);
     flowMakeDot(tab, flow_grid);
@@ -732,6 +769,11 @@ void uiUpdate() {
     else if (soc < 50) lv_obj_set_style_text_color(label_flow_soc, colorOrangeText(), 0);
     else lv_obj_set_style_text_color(label_flow_soc, lv_palette_main(LV_PALETTE_GREEN), 0);
     lv_label_set_text(label_flow_batt, flowFormatPower(battPwr).c_str());
+    lv_label_set_text(label_flow_batt_temp, (String(temp, 1) + " °C").c_str());
+    if (temp < 5.0f || temp > 45.0f)
+        lv_obj_set_style_text_color(label_flow_batt_temp, lv_palette_main(LV_PALETTE_RED), 0);
+    else
+        lv_obj_set_style_text_color(label_flow_batt_temp, lv_palette_main(LV_PALETTE_GREY), 0);
     if (battPwr > 10)
         flowSetLink(flow_batt, 1, LV_SYMBOL_RIGHT, colorOrangeText());
     else if (battPwr < -10)
