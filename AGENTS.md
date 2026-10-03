@@ -21,7 +21,7 @@
 | `src/network.cpp` | WiFiManager (портал `Deye_Monitor_ESP32_IoT` с полями IP/порт/SN/SlaveID/TZ/DST), ретраи, NTP, reconnect | `networkSetup`, `networkCheckReconnect`, `networkApplyTimeConfig` |
 | `src/inverter.cpp` | кадр Solarman V5, разбор ответа, данные инвертора | `inverterRequestData`, `inverterHandleResponse`, геттеры `inverterGet*` |
 | `src/settings.cpp` | NVS (Preferences), глобальные настройки (`INVERTER_IP`, `INVERTER_SN`, `INVERTER_SLAVE_ID`, `TIMEZONE_HOUR`, `DST_ENABLED`, `SCREEN_TIMEOUT_MIN`…) | `settingsLoad`, `settingsSave*` |
-| `src/ui.cpp` | LVGL TabView: Battery, Grid, Solar, Settings (скрыта в таббаре), статус-бар | `uiBuild`, `uiUpdate`, `uiUpdateStatusBar` |
+| `src/ui.cpp` | LVGL TabView: Flow (схема потоков), Battery, Grid, Solar, Settings (скрыта в таббаре), статус-бар | `uiBuild`, `uiUpdate`, `uiUpdateStatusBar` |
 | `include/config.h` | пины CYD, дефолты инвертора, **карта регистров** (`REG_BLOCK_START/LEN`, `ADDR_*`) | — |
 
 Документация: [docs/behavior_scenarios.md](docs/behavior_scenarios.md) описывает поведение при первом старте, пропадании света, Reboot и потере сети. [docs/DECOMPOSITION.md](docs/DECOMPOSITION.md) содержит архитектуру, но частично ссылается на `main.cpp` в том виде, каким он был до разбиения на модули. Сверяйтесь с таблицей выше.

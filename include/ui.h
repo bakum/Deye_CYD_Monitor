@@ -5,10 +5,11 @@
 
 /** Индексы вкладок TabView. Settings скрыта в таббаре, открывается длинным BOOT. */
 enum UiTabIndex {
-    UI_TAB_BATTERY = 0,
-    UI_TAB_GRID = 1,
-    UI_TAB_SOLAR = 2,
-    UI_TAB_SETTINGS = 3
+    UI_TAB_FLOW = 0,
+    UI_TAB_BATTERY = 1,
+    UI_TAB_GRID = 2,
+    UI_TAB_SOLAR = 3,
+    UI_TAB_SETTINGS = 4
 };
 
 /** Построить все экраны (TabView, вкладки, виджеты). Вызвать после lvglInit и touchRegisterLvglIndev. */

@@ -34,10 +34,240 @@ static lv_obj_t* label_pv2_volts;
 static lv_obj_t* label_pv2_amps;
 static lv_obj_t* label_pv2_watts;
 static lv_obj_t* arc_loader;
+// Вкладка Flow: схема потоков энергии
+static lv_obj_t* label_flow_pv;
+static lv_obj_t* label_flow_grid;
+static lv_obj_t* label_flow_grid_volts;
+static lv_obj_t* label_flow_batt;
+static lv_obj_t* label_flow_soc;
+static lv_obj_t* label_flow_load;
+
+// Иконки вкладки Flow (src/flow_icons.c, генерируются tools/gen_flow_icons.py)
+LV_IMG_DECLARE(flow_icon_pv);
+LV_IMG_DECLARE(flow_icon_grid);
+LV_IMG_DECLARE(flow_icon_inverter);
+LV_IMG_DECLARE(flow_icon_load);
 
 /** Оранжевый для текста: темнее палитрового, чтобы читался на белом фоне. */
 static lv_color_t colorOrangeText() {
     return lv_palette_darken(LV_PALETTE_ORANGE, 3);
+}
+
+// --- Вкладка Flow ---
+// Координаты в пикселях вкладки (320×200, отступы 0). Сверху ~20 px занимает статус-бар.
+// Инвертор в центре: x 140..180, y 85..121. Линии пунктирные, только горизонтальные
+// и вертикальные отрезки (в LVGL 8 пунктир рисуется только для них).
+static lv_point_t flow_pts_pv[]   = {{58, 38}, {100, 38}, {100, 95}, {140, 95}};
+static lv_point_t flow_pts_grid[] = {{262, 38}, {220, 38}, {220, 95}, {180, 95}};
+static lv_point_t flow_pts_batt[] = {{58, 149}, {100, 149}, {100, 111}, {140, 111}};
+static lv_point_t flow_pts_load[] = {{160, 121}, {160, 132}, {210, 132}, {210, 142}};
+
+/** Связь узла с инвертором: пунктир, стрелка и бегущая точка. */
+struct FlowLink {
+    lv_point_t* pts;
+    uint16_t n;
+    uint16_t len;      // длина пути в px (сумма отрезков)
+    lv_obj_t* line;
+    lv_obj_t* arrow;
+    lv_obj_t* dot;
+    int8_t dir;        // 0 — потока нет, 1 — по порядку точек, -1 — обратно
+};
+// Точки pv/grid/batt идут от узла к инвертору, load — от инвертора к нагрузке.
+static FlowLink flow_pv   = {flow_pts_pv, 4};
+static FlowLink flow_grid = {flow_pts_grid, 4};
+static FlowLink flow_batt = {flow_pts_batt, 4};
+static FlowLink flow_load = {flow_pts_load, 4};
+
+static const uint32_t FLOW_DOT_MS_PER_PX = 20;  // скорость точки ~50 px/s
+
+/** Цвет неактивной линии: обычный серый, светлее выцветает на CYD. */
+static lv_color_t flowIdleColor() {
+    return lv_palette_main(LV_PALETTE_GREY);
+}
+
+static void flowMakeLine(lv_obj_t* parent, FlowLink& link, lv_style_t* style) {
+    link.line = lv_line_create(parent);
+    lv_line_set_points(link.line, link.pts, link.n);
+    lv_obj_add_style(link.line, style, 0);
+    lv_obj_set_pos(link.line, 0, 0);
+    link.len = 0;
+    for (uint16_t i = 0; i + 1 < link.n; i++)
+        link.len += abs(link.pts[i + 1].x - link.pts[i].x) + abs(link.pts[i + 1].y - link.pts[i].y);
+}
+
+/** Точка-кружок, которая бежит по линии. Создаётся до стрелок, чтобы стрелка была поверх. */
+static void flowMakeDot(lv_obj_t* parent, FlowLink& link) {
+    link.dot = lv_obj_create(parent);
+    lv_obj_remove_style_all(link.dot);
+    lv_obj_set_size(link.dot, 6, 6);
+    lv_obj_set_style_radius(link.dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(link.dot, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(link.dot, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(link.dot, LV_OBJ_FLAG_HIDDEN);
+}
+
+/** Анимация: v — пройденное расстояние по пути в px. Отрезки только горизонтальные/вертикальные. */
+static void flowDotAnimCb(void* var, int32_t v) {
+    FlowLink* link = (FlowLink*)var;
+    int32_t d = link->dir < 0 ? (int32_t)link->len - v : v;
+    lv_coord_t x = link->pts[0].x, y = link->pts[0].y;
+    for (uint16_t i = 0; i + 1 < link->n; i++) {
+        const lv_point_t& a = link->pts[i];
+        const lv_point_t& b = link->pts[i + 1];
+        int32_t seg = abs(b.x - a.x) + abs(b.y - a.y);
+        int32_t step = d < seg ? d : seg;
+        x = a.x + (b.x > a.x ? step : (b.x < a.x ? -step : 0));
+        y = a.y + (b.y > a.y ? step : (b.y < a.y ? -step : 0));
+        if (d <= seg) break;
+        d -= seg;
+    }
+    lv_obj_set_pos(link->dot, x - 3, y - 3);
+}
+
+/** Пустая плашка-узел 50×28 с рамкой. */
+static lv_obj_t* flowMakeBox(lv_obj_t* parent, lv_coord_t x, lv_coord_t y) {
+    lv_obj_t* box = lv_obj_create(parent);
+    lv_obj_set_size(box, 50, 28);
+    lv_obj_set_pos(box, x, y);
+    lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_pad_all(box, 0, 0);
+    lv_obj_set_style_radius(box, 6, 0);
+    lv_obj_set_style_border_width(box, 2, 0);
+    // Рамка обычного серого: светлее теряется у края экрана CYD, темнее спорит с линиями.
+    lv_obj_set_style_border_color(box, lv_palette_main(LV_PALETTE_GREY), 0);
+    return box;
+}
+
+/** Плашка-узел с текстом по центру. Возвращает метку внутри. */
+static lv_obj_t* flowMakeNode(lv_obj_t* parent, lv_coord_t x, lv_coord_t y, const char* text) {
+    lv_obj_t* label = lv_label_create(flowMakeBox(parent, x, y));
+    lv_label_set_text(label, text);
+    lv_obj_center(label);
+    return label;
+}
+
+/** Плашка-узел с иконкой 24×24 (альфа-маска, цвет через img_recolor). Возвращает плашку. */
+static lv_obj_t* flowMakeIconNode(lv_obj_t* parent, lv_coord_t x, lv_coord_t y,
+                                  const lv_img_dsc_t* icon, lv_color_t color) {
+    lv_obj_t* box = flowMakeBox(parent, x, y);
+    lv_obj_t* img = lv_img_create(box);
+    lv_img_set_src(img, icon);
+    lv_obj_set_style_img_recolor(img, color, 0);
+    lv_obj_set_style_img_recolor_opa(img, LV_OPA_COVER, 0);
+    lv_obj_center(img);
+    return box;
+}
+
+/** Подпись значения под узлом: ширина 100, выравнивание текста задаётся. */
+static lv_obj_t* flowMakeValue(lv_obj_t* parent, lv_coord_t x, lv_coord_t y, lv_text_align_t align) {
+    lv_obj_t* label = lv_label_create(parent);
+    lv_obj_set_width(label, 100);
+    lv_obj_set_pos(label, x, y);
+    lv_obj_set_style_text_align(label, align, 0);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
+    lv_label_set_text(label, "-- W");
+    return label;
+}
+
+/** Стрелка направления на линии: белый фон закрывает пунктир под ней. (x, y) — центр. */
+static lv_obj_t* flowMakeArrow(lv_obj_t* parent, lv_coord_t x, lv_coord_t y) {
+    lv_obj_t* arrow = lv_label_create(parent);
+    lv_obj_set_size(arrow, 16, 16);
+    lv_obj_set_pos(arrow, x - 8, y - 8);
+    lv_obj_set_style_text_align(arrow, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_bg_color(arrow, lv_color_white(), 0);
+    lv_obj_set_style_bg_opa(arrow, LV_OPA_COVER, 0);
+    lv_label_set_text(arrow, "");
+    lv_obj_add_flag(arrow, LV_OBJ_FLAG_HIDDEN);
+    return arrow;
+}
+
+/** Активная линия красится в цвет потока, показывает стрелку и бегущую точку; неактивная — серая.
+ *  Анимация перезапускается только при смене направления, иначе точка дёргалась бы каждый опрос. */
+static void flowSetLink(FlowLink& link, int8_t dir, const char* symbol, lv_color_t color) {
+    if (dir != 0) {
+        lv_obj_set_style_line_color(link.line, color, 0);
+        lv_label_set_text(link.arrow, symbol);
+        lv_obj_set_style_text_color(link.arrow, color, 0);
+        lv_obj_clear_flag(link.arrow, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_bg_color(link.dot, color, 0);
+        lv_obj_clear_flag(link.dot, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_set_style_line_color(link.line, flowIdleColor(), 0);
+        lv_obj_add_flag(link.arrow, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(link.dot, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (dir == link.dir) return;
+    link.dir = dir;
+    lv_anim_del(&link, flowDotAnimCb);
+    if (dir == 0) return;
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, &link);
+    lv_anim_set_exec_cb(&a, flowDotAnimCb);
+    lv_anim_set_values(&a, 0, link.len);
+    lv_anim_set_time(&a, link.len * FLOW_DOT_MS_PER_PX);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_start(&a);
+}
+
+/** Мощность для схемы: до 1000 W в ваттах, дальше в kW с двумя знаками. */
+static String flowFormatPower(int32_t w) {
+    if (w < 0) w = -w;
+    if (w < 1000) return String(w) + " W";
+    return String(w / 1000.0f, 2) + " kW";
+}
+
+static void buildFlowTab(lv_obj_t* tab) {
+    lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(tab, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_style_pad_all(tab, 0, 0);
+
+    static lv_style_t style_flow_line;
+    lv_style_init(&style_flow_line);
+    lv_style_set_line_width(&style_flow_line, 2);
+    lv_style_set_line_dash_width(&style_flow_line, 4);
+    lv_style_set_line_dash_gap(&style_flow_line, 3);
+    lv_style_set_line_color(&style_flow_line, flowIdleColor());
+
+    // Линии первыми, чтобы узлы и стрелки рисовались поверх.
+    flowMakeLine(tab, flow_pv, &style_flow_line);
+    flowMakeLine(tab, flow_grid, &style_flow_line);
+    flowMakeLine(tab, flow_batt, &style_flow_line);
+    flowMakeLine(tab, flow_load, &style_flow_line);
+
+    lv_color_t icon_dark = lv_palette_darken(LV_PALETTE_GREY, 4);
+    flowMakeIconNode(tab, 8, 24, &flow_icon_pv, colorOrangeText());
+    flowMakeIconNode(tab, 262, 24, &flow_icon_grid, icon_dark);
+    label_flow_soc = flowMakeNode(tab, 8, 135, "--%");
+    lv_obj_set_style_text_font(label_flow_soc, &lv_font_montserrat_16, 0);
+    flowMakeIconNode(tab, 185, 142, &flow_icon_load, icon_dark);
+
+    // Инвертор чуть крупнее остальных узлов.
+    lv_obj_t* box_inv = flowMakeIconNode(tab, 140, 85, &flow_icon_inverter, lv_palette_main(LV_PALETTE_BLUE));
+    lv_obj_set_size(box_inv, 40, 36);
+    lv_obj_center(lv_obj_get_child(box_inv, 0));
+    lv_obj_set_style_border_color(box_inv, lv_palette_main(LV_PALETTE_BLUE), 0);
+
+    label_flow_pv = flowMakeValue(tab, 8, 54, LV_TEXT_ALIGN_LEFT);
+    label_flow_grid = flowMakeValue(tab, 212, 54, LV_TEXT_ALIGN_RIGHT);
+    label_flow_grid_volts = flowMakeValue(tab, 212, 72, LV_TEXT_ALIGN_RIGHT);
+    lv_obj_set_style_text_font(label_flow_grid_volts, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(label_flow_grid_volts, lv_palette_main(LV_PALETTE_GREY), 0);
+    lv_label_set_text(label_flow_grid_volts, "-- V");
+    label_flow_batt = flowMakeValue(tab, 8, 165, LV_TEXT_ALIGN_LEFT);
+    label_flow_load = flowMakeValue(tab, 160, 172, LV_TEXT_ALIGN_CENTER);
+
+    flowMakeDot(tab, flow_pv);
+    flowMakeDot(tab, flow_grid);
+    flowMakeDot(tab, flow_batt);
+    flowMakeDot(tab, flow_load);
+
+    flow_pv.arrow = flowMakeArrow(tab, 120, 95);
+    flow_grid.arrow = flowMakeArrow(tab, 200, 95);
+    flow_batt.arrow = flowMakeArrow(tab, 120, 111);
+    flow_load.arrow = flowMakeArrow(tab, 185, 132);
 }
 
 // --- Callbacks ---
@@ -99,11 +329,14 @@ void uiBuild() {
     lv_style_set_text_color(&style_label_gray, lv_palette_main(LV_PALETTE_GREY));
 
     tabview = lv_tabview_create(lv_scr_act(), LV_DIR_BOTTOM, 40);
+    lv_obj_t* tab_flow = lv_tabview_add_tab(tabview, "Flow");
     lv_obj_t* tab_batt = lv_tabview_add_tab(tabview, "Battery");
-    lv_obj_t* tab_grid = lv_tabview_add_tab(tabview, "Grid/Home");
+    lv_obj_t* tab_grid = lv_tabview_add_tab(tabview, "Grid");
     lv_obj_t* tab_solar = lv_tabview_add_tab(tabview, "Solar");
     lv_obj_clear_flag(tab_solar, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t* tab_settings = lv_tabview_add_tab(tabview, "Settings");
+
+    buildFlowTab(tab_flow);
 
     // Settings: brightness
     lv_obj_t* label_bri = lv_label_create(tab_settings);
@@ -470,6 +703,34 @@ void uiUpdate() {
         lv_obj_set_style_text_color(label_source_val, colorOrangeText(), 0);
     else
         lv_obj_set_style_text_color(label_source_val, lv_palette_main(LV_PALETTE_GREY), 0);
+
+    // Flow: стрелки показывают направление потока относительно инвертора.
+    lv_label_set_text(label_flow_pv, flowFormatPower(pvTotal).c_str());
+    flowSetLink(flow_pv, pvTotal > 10 ? 1 : 0, LV_SYMBOL_RIGHT, colorOrangeText());
+
+    lv_label_set_text(label_flow_grid, flowFormatPower(gridPwr).c_str());
+    lv_label_set_text(label_flow_grid_volts, (String(gridV, 1) + " V").c_str());
+    if (gridPwr > 10)
+        flowSetLink(flow_grid, 1, LV_SYMBOL_LEFT, lv_palette_main(LV_PALETTE_RED));
+    else if (gridPwr < -10)
+        flowSetLink(flow_grid, -1, LV_SYMBOL_RIGHT, lv_palette_main(LV_PALETTE_GREEN));
+    else
+        flowSetLink(flow_grid, 0, "", lv_color_black());
+
+    lv_label_set_text(label_flow_soc, (String(soc) + "%").c_str());
+    if (soc < 20) lv_obj_set_style_text_color(label_flow_soc, lv_palette_main(LV_PALETTE_RED), 0);
+    else if (soc < 50) lv_obj_set_style_text_color(label_flow_soc, colorOrangeText(), 0);
+    else lv_obj_set_style_text_color(label_flow_soc, lv_palette_main(LV_PALETTE_GREEN), 0);
+    lv_label_set_text(label_flow_batt, flowFormatPower(battPwr).c_str());
+    if (battPwr > 10)
+        flowSetLink(flow_batt, 1, LV_SYMBOL_RIGHT, colorOrangeText());
+    else if (battPwr < -10)
+        flowSetLink(flow_batt, -1, LV_SYMBOL_LEFT, lv_palette_main(LV_PALETTE_GREEN));
+    else
+        flowSetLink(flow_batt, 0, "", lv_color_black());
+
+    lv_label_set_text(label_flow_load, flowFormatPower(loadPwr).c_str());
+    flowSetLink(flow_load, loadPwr > 10 ? 1 : 0, LV_SYMBOL_RIGHT, lv_palette_main(LV_PALETTE_BLUE));
 
     lv_label_set_text(label_pv_total, (String(pvTotal) + " W").c_str());
     if (pvTotal > 10)
