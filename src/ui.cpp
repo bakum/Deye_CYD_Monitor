@@ -41,12 +41,14 @@ static lv_obj_t* label_flow_grid_volts;
 static lv_obj_t* label_flow_batt;
 static lv_obj_t* label_flow_soc;
 static lv_obj_t* label_flow_load;
+static lv_obj_t* label_flow_home;
 
 // Иконки вкладки Flow (src/flow_icons.c, генерируются tools/gen_flow_icons.py)
 LV_IMG_DECLARE(flow_icon_pv);
 LV_IMG_DECLARE(flow_icon_grid);
 LV_IMG_DECLARE(flow_icon_inverter);
 LV_IMG_DECLARE(flow_icon_load);
+LV_IMG_DECLARE(flow_icon_home);
 
 /** Оранжевый для текста: темнее палитрового, чтобы читался на белом фоне. */
 static lv_color_t colorOrangeText() {
@@ -61,6 +63,7 @@ static lv_point_t flow_pts_pv[]   = {{58, 38}, {100, 38}, {100, 95}, {140, 95}};
 static lv_point_t flow_pts_grid[] = {{262, 38}, {220, 38}, {220, 95}, {180, 95}};
 static lv_point_t flow_pts_batt[] = {{58, 149}, {100, 149}, {100, 111}, {140, 111}};
 static lv_point_t flow_pts_load[] = {{160, 121}, {160, 132}, {210, 132}, {210, 142}};
+static lv_point_t flow_pts_home[] = {{180, 111}, {287, 111}, {287, 142}};
 
 /** Связь узла с инвертором: пунктир, стрелка и бегущая точка. */
 struct FlowLink {
@@ -72,11 +75,12 @@ struct FlowLink {
     lv_obj_t* dot;
     int8_t dir;        // 0 — потока нет, 1 — по порядку точек, -1 — обратно
 };
-// Точки pv/grid/batt идут от узла к инвертору, load — от инвертора к нагрузке.
+// Точки pv/grid/batt идут от узла к инвертору, load и home — от инвертора к нагрузке.
 static FlowLink flow_pv   = {flow_pts_pv, 4};
 static FlowLink flow_grid = {flow_pts_grid, 4};
 static FlowLink flow_batt = {flow_pts_batt, 4};
 static FlowLink flow_load = {flow_pts_load, 4};
+static FlowLink flow_home = {flow_pts_home, 3};
 
 static const uint32_t FLOW_DOT_MS_PER_PX = 20;  // скорость точки ~50 px/s
 
@@ -236,6 +240,7 @@ static void buildFlowTab(lv_obj_t* tab) {
     flowMakeLine(tab, flow_grid, &style_flow_line);
     flowMakeLine(tab, flow_batt, &style_flow_line);
     flowMakeLine(tab, flow_load, &style_flow_line);
+    flowMakeLine(tab, flow_home, &style_flow_line);
 
     lv_color_t icon_dark = lv_palette_darken(LV_PALETTE_GREY, 4);
     flowMakeIconNode(tab, 8, 24, &flow_icon_pv, colorOrangeText());
@@ -243,6 +248,7 @@ static void buildFlowTab(lv_obj_t* tab) {
     label_flow_soc = flowMakeNode(tab, 8, 135, "--%");
     lv_obj_set_style_text_font(label_flow_soc, &lv_font_montserrat_16, 0);
     flowMakeIconNode(tab, 185, 142, &flow_icon_load, icon_dark);
+    flowMakeIconNode(tab, 262, 142, &flow_icon_home, icon_dark);
 
     // Инвертор чуть крупнее остальных узлов.
     lv_obj_t* box_inv = flowMakeIconNode(tab, 140, 85, &flow_icon_inverter, lv_palette_main(LV_PALETTE_BLUE));
@@ -258,16 +264,19 @@ static void buildFlowTab(lv_obj_t* tab) {
     lv_label_set_text(label_flow_grid_volts, "-- V");
     label_flow_batt = flowMakeValue(tab, 8, 165, LV_TEXT_ALIGN_LEFT);
     label_flow_load = flowMakeValue(tab, 160, 172, LV_TEXT_ALIGN_CENTER);
+    label_flow_home = flowMakeValue(tab, 212, 172, LV_TEXT_ALIGN_RIGHT);
 
     flowMakeDot(tab, flow_pv);
     flowMakeDot(tab, flow_grid);
     flowMakeDot(tab, flow_batt);
     flowMakeDot(tab, flow_load);
+    flowMakeDot(tab, flow_home);
 
     flow_pv.arrow = flowMakeArrow(tab, 120, 95);
     flow_grid.arrow = flowMakeArrow(tab, 200, 95);
     flow_batt.arrow = flowMakeArrow(tab, 120, 111);
     flow_load.arrow = flowMakeArrow(tab, 185, 132);
+    flow_home.arrow = flowMakeArrow(tab, 240, 111);
 }
 
 // --- Callbacks ---
@@ -613,6 +622,7 @@ void uiUpdate() {
     int16_t gridPwr = inverterGetGridPower();
     float gridV = inverterGetGridVolts();
     uint16_t loadPwr = inverterGetLoadPower();
+    uint16_t homePwr = inverterGetHomePower();
     uint32_t pvTotal = inverterGetPvTotalPower();
     float pvDay = inverterGetDayPvEnergy();
     float pv1V = inverterGetPv1Volts();
@@ -731,6 +741,10 @@ void uiUpdate() {
 
     lv_label_set_text(label_flow_load, flowFormatPower(loadPwr).c_str());
     flowSetLink(flow_load, loadPwr > 10 ? 1 : 0, LV_SYMBOL_RIGHT, lv_palette_main(LV_PALETTE_BLUE));
+
+    // Home = внешний CT - внутренний; порог 20 W, т.к. CT даёт смещение ~9 W без нагрузки.
+    lv_label_set_text(label_flow_home, flowFormatPower(homePwr).c_str());
+    flowSetLink(flow_home, homePwr > 20 ? 1 : 0, LV_SYMBOL_RIGHT, lv_palette_main(LV_PALETTE_TEAL));
 
     lv_label_set_text(label_pv_total, (String(pvTotal) + " W").c_str());
     if (pvTotal > 10)

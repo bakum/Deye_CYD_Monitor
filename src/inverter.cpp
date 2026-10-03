@@ -20,6 +20,7 @@ static float battTemp = 0.0f;
 static float battCurrent = 0.0f;
 static int16_t battPower = 0;
 static int16_t gridPower = 0;
+static int16_t extCtPower = 0;
 static float gridVolts = 0.0f;
 static uint16_t loadPower = 0;
 static float pv1Volts = 0.0f;
@@ -65,7 +66,7 @@ static int16_t getRegSigned(uint8_t* buffer, int start_offset, int reg_addr) {
 struct InverterSample {
     uint16_t battSOC;
     float battVolts, battTemp, battCurrent;
-    int16_t battPower, gridPower;
+    int16_t battPower, gridPower, extCtPower;
     float gridVolts;
     uint16_t loadPower;
     float pv1Volts, pv1Current;
@@ -83,6 +84,7 @@ static const char* checkPlausibility(const InverterSample& s) {
     if (fabsf(s.battCurrent) > 300.0f) return "battery current";
     if (abs(s.battPower) > 15000) return "battery power";
     if (abs(s.gridPower) > 25000) return "grid power";
+    if (abs(s.extCtPower) > 25000) return "external CT power";
     if (s.gridVolts < 0.0f || s.gridVolts > 300.0f) return "grid voltage";
     if (s.loadPower > 25000) return "load power";
     if (s.pv1Volts > 600.0f || s.pv2Volts > 600.0f) return "PV voltage";
@@ -262,6 +264,7 @@ void inverterHandleResponse() {
     s.battPower = getRegSigned(buffer, dataOffset, ADDR_BATT_POWER);
     s.battCurrent = getRegSigned(buffer, dataOffset, ADDR_BATT_CURRENT) / 100.0f;
     s.gridPower = getRegSigned(buffer, dataOffset, ADDR_GRID_POWER);
+    s.extCtPower = getRegSigned(buffer, dataOffset, ADDR_EXT_CT_POWER);
     s.gridVolts = getReg(buffer, dataOffset, ADDR_GRID_VOLTAGE) / 10.0f;
     s.loadPower = getReg(buffer, dataOffset, ADDR_LOAD_POWER);
     s.pv1Volts = getReg(buffer, dataOffset, ADDR_PV1_VOLTAGE) / 10.0f;
@@ -274,9 +277,9 @@ void inverterHandleResponse() {
 
     const char* implausible = checkPlausibility(s);
     if (implausible) {
-        Serial.printf("[%lu] Implausible: SOC=%u V=%.2f A=%.2f P=%dW T=%.1f Grid=%dW/%.1fV Load=%uW PV1=%.1fV/%.1fA/%uW PV2=%.1fV/%.1fA/%uW Day=%.1f\n",
+        Serial.printf("[%lu] Implausible: SOC=%u V=%.2f A=%.2f P=%dW T=%.1f Grid=%dW/%.1fV CT=%dW Load=%uW PV1=%.1fV/%.1fA/%uW PV2=%.1fV/%.1fA/%uW Day=%.1f\n",
             (unsigned long)millis(), s.battSOC, s.battVolts, s.battCurrent, s.battPower, s.battTemp,
-            s.gridPower, s.gridVolts, s.loadPower, s.pv1Volts, s.pv1Current, s.pv1Power,
+            s.gridPower, s.gridVolts, s.extCtPower, s.loadPower, s.pv1Volts, s.pv1Current, s.pv1Power,
             s.pv2Volts, s.pv2Current, s.pv2Power, s.dayPvEnergy);
         dropFrame(implausible);
         return;
@@ -288,6 +291,7 @@ void inverterHandleResponse() {
     battPower = s.battPower;
     battCurrent = s.battCurrent;
     gridPower = s.gridPower;
+    extCtPower = s.extCtPower;
     gridVolts = s.gridVolts;
     loadPower = s.loadPower;
     pv1Volts = s.pv1Volts;
@@ -299,8 +303,8 @@ void inverterHandleResponse() {
     dayPvEnergy = s.dayPvEnergy;
 
     lastSuccessTimestamp = millis();
-    Serial.printf("[%lu] Data: SOC=%d%%, V=%.2f, A=%.2f, P=%dW, T=%.1fC, Grid=%dW, Load=%dW, PV=%luW (PV1=%uW PV2=%uW), Day=%.1fkWh\n",
-        (unsigned long)millis(), battSOC, battVolts, battCurrent, battPower, battTemp, gridPower, loadPower,
+    Serial.printf("[%lu] Data: SOC=%d%%, V=%.2f, A=%.2f, P=%dW, T=%.1fC, Grid=%dW, CT=%dW, Load=%dW, PV=%luW (PV1=%uW PV2=%uW), Day=%.1fkWh\n",
+        (unsigned long)millis(), battSOC, battVolts, battCurrent, battPower, battTemp, gridPower, extCtPower, loadPower,
         (unsigned long)((uint32_t)pv1Power + (uint32_t)pv2Power), pv1Power, pv2Power, dayPvEnergy);
 
     isRequestSent = false;
@@ -325,6 +329,11 @@ float inverterGetBattTemp() { return battTemp; }
 float inverterGetBattCurrent() { return battCurrent; }
 int16_t inverterGetBattPower() { return battPower; }
 int16_t inverterGetGridPower() { return gridPower; }
+// Нагрузка до инвертора: внешний CT (весь ввод дома) минус внутренний (порт сети инвертора).
+uint16_t inverterGetHomePower() {
+    int32_t home = (int32_t)extCtPower - (int32_t)gridPower;
+    return home > 0 ? (uint16_t)home : 0;
+}
 float inverterGetGridVolts() { return gridVolts; }
 uint16_t inverterGetLoadPower() { return loadPower; }
 float inverterGetPv1Volts() { return pv1Volts; }

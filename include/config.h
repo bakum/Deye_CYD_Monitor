@@ -36,6 +36,7 @@
     const uint16_t ADDR_PV2_VOLTAGE     = 111;
     const uint16_t ADDR_PV2_CURRENT     = 112;
     const uint16_t ADDR_GRID_POWER      = 169;
+    const uint16_t ADDR_EXT_CT_POWER    = 172;  // сеть по внешнему CT (ввод дома), signed
     const uint16_t ADDR_GRID_VOLTAGE    = 150;
     const uint16_t ADDR_LOAD_POWER      = 178;
     const uint16_t ADDR_BATT_TEMP       = 182;

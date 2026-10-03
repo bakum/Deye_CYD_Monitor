@@ -84,11 +84,21 @@ def icon_load():
     return img
 
 
+def icon_home():
+    img, d = canvas()
+    # Дом: крыша, стены, дверь
+    line(d, [(6, 48), (48, 8), (90, 48)])
+    line(d, [(18, 38), (18, 90), (78, 90), (78, 38)])
+    d.rectangle((40, 58, 56, 90), fill=255)
+    return img
+
+
 ICONS = [
     ("flow_icon_pv", icon_pv),
     ("flow_icon_grid", icon_grid),
     ("flow_icon_inverter", icon_inverter),
     ("flow_icon_load", icon_load),
+    ("flow_icon_home", icon_home),
 ]
 
 

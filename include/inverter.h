@@ -37,6 +37,8 @@ float inverterGetBattTemp();
 float inverterGetBattCurrent();
 int16_t inverterGetBattPower();
 int16_t inverterGetGridPower();
+/** Нагрузка на стороне сети (до инвертора), W: внешний CT − внутренний, не меньше 0. */
+uint16_t inverterGetHomePower();
 float inverterGetGridVolts();
 uint16_t inverterGetLoadPower();
 float inverterGetPv1Volts();
