@@ -9,6 +9,9 @@
 
 static SPIClass touchSpi(HSPI);
 static XPT2046_Touchscreen ts(XPT2046_CS);
+// Касание, разбудившее экран, не передаётся в LVGL до отпускания пальца,
+// иначе удержание после пробуждения нажимает то, что под пальцем (вкладки, Reboot).
+static bool waitRelease = false;
 
 static void my_touchpad_read(lv_indev_drv_t* indev_driver, lv_indev_data_t* data) {
     if (ts.touched()) {
@@ -25,6 +28,11 @@ static void my_touchpad_read(lv_indev_drv_t* indev_driver, lv_indev_data_t* data
             settingsSetScreenOn(true);
             backlightSet(settingsGetBrightness());
             inverterSetLastUpdate(0);
+            waitRelease = true;
+            data->state = LV_INDEV_STATE_REL;
+            return;
+        }
+        if (waitRelease) {
             data->state = LV_INDEV_STATE_REL;
             return;
         }
@@ -41,6 +49,7 @@ static void my_touchpad_read(lv_indev_drv_t* indev_driver, lv_indev_data_t* data
 
         data->state = LV_INDEV_STATE_PR;
     } else {
+        waitRelease = false;
         data->state = LV_INDEV_STATE_REL;
     }
 }
