@@ -11,6 +11,7 @@ uint32_t INVERTER_SN = DEFAULT_INVERTER_SN;
 uint8_t INVERTER_SLAVE_ID = 1;
 int TIMEZONE_HOUR = DEFAULT_TIMEZONE_HOUR;
 bool DST_ENABLED = DEFAULT_DST_ENABLED;
+uint32_t INVERTER_POWER_W = DEFAULT_INVERTER_POWER_W;
 
 int SCREEN_TIMEOUT_MIN = 10;
 int LCD_BRIGHTNESS = 100;
@@ -27,6 +28,9 @@ void settingsLoad() {
     INVERTER_SLAVE_ID = preferences.getUChar("slave_id", 1);
     TIMEZONE_HOUR = preferences.getInt("tz_hour", DEFAULT_TIMEZONE_HOUR);
     DST_ENABLED = preferences.getBool("dst", DEFAULT_DST_ENABLED);
+    INVERTER_POWER_W = preferences.getUInt("inv_power", DEFAULT_INVERTER_POWER_W);
+    if (INVERTER_POWER_W < INVERTER_POWER_MIN_W || INVERTER_POWER_W > INVERTER_POWER_MAX_W)
+        INVERTER_POWER_W = DEFAULT_INVERTER_POWER_W;
     SCREEN_TIMEOUT_MIN = preferences.getInt("scr_timeout", 10);
     LCD_BRIGHTNESS = preferences.getInt("lcd_bri", 100);
 
@@ -37,7 +41,8 @@ void settingsLoad() {
     preferences.end();
 }
 
-void settingsSaveAfterWifi(const char* ip, int port, uint32_t sn, uint8_t slaveId, int tz, bool dst) {
+void settingsSaveAfterWifi(const char* ip, int port, uint32_t sn, uint8_t slaveId, int tz, bool dst,
+                           uint32_t powerW) {
     preferences.begin("deye_config", false);
     strncpy(INVERTER_IP, ip, 15);
     INVERTER_IP[15] = '\0';
@@ -46,6 +51,7 @@ void settingsSaveAfterWifi(const char* ip, int port, uint32_t sn, uint8_t slaveI
     INVERTER_SLAVE_ID = slaveId;
     TIMEZONE_HOUR = tz;
     DST_ENABLED = dst;
+    INVERTER_POWER_W = powerW;
 
     preferences.putString("ip", INVERTER_IP);
     preferences.putInt("port", INVERTER_PORT);
@@ -53,6 +59,7 @@ void settingsSaveAfterWifi(const char* ip, int port, uint32_t sn, uint8_t slaveI
     preferences.putUChar("slave_id", INVERTER_SLAVE_ID);
     preferences.putInt("tz_hour", TIMEZONE_HOUR);
     preferences.putBool("dst", DST_ENABLED);
+    preferences.putUInt("inv_power", INVERTER_POWER_W);
     preferences.putInt("lcd_bri", LCD_BRIGHTNESS);
     preferences.end();
 }

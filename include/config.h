@@ -26,8 +26,11 @@
 #define DEFAULT_TIMEZONE_HOUR 4
 #define DEFAULT_DST_ENABLED   false
 
-// Предел шкал-дуг на вкладке Flow, W (как 5.0 kW на панели Deye)
-#define FLOW_GAUGE_MAX_W      5000
+// Номинальная мощность инвертора, W — предел шкал-дуг на вкладке Flow (как 5.0 kW на панели Deye).
+// Задаётся в портале WiFiManager, допустимо 1..50 kW.
+#define DEFAULT_INVERTER_POWER_W 5000
+#define INVERTER_POWER_MIN_W     1000
+#define INVERTER_POWER_MAX_W     50000
 
     // --- КАРТА РЕГИСТРОВ ---
     const uint16_t REG_BLOCK_START = 103;

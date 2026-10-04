@@ -18,7 +18,7 @@
 | `src/main.cpp` | `setup()` и `loop()`: BOOT, таймаут экрана, таймаут запроса, интервал опроса | константы `REQUEST_TIMEOUT_MS=4000`, `POLL_INTERVAL_MS=5000` |
 | `src/display.cpp` | TFT, LVGL draw buffer и flush, подсветка | `displayInit`, `lvglInit`, `backlightSet` |
 | `src/touch.cpp` | XPT2046 → LVGL indev, пробуждение экрана касанием | `touchInit`, `touchRegisterLvglIndev` |
-| `src/network.cpp` | WiFiManager (портал `Deye_Monitor_ESP32_IoT` с полями IP/порт/SN/SlaveID/TZ/DST), ретраи, NTP, reconnect | `networkSetup`, `networkCheckReconnect`, `networkApplyTimeConfig` |
+| `src/network.cpp` | WiFiManager (портал `Deye_Monitor_ESP32_IoT` с полями IP/порт/SN/SlaveID/TZ/DST/мощность инвертора), ретраи, NTP, reconnect | `networkSetup`, `networkCheckReconnect`, `networkApplyTimeConfig` |
 | `src/inverter.cpp` | кадр Solarman V5, разбор ответа, данные инвертора | `inverterRequestData`, `inverterHandleResponse`, геттеры `inverterGet*` |
 | `src/settings.cpp` | NVS (Preferences), глобальные настройки (`INVERTER_IP`, `INVERTER_SN`, `INVERTER_SLAVE_ID`, `TIMEZONE_HOUR`, `DST_ENABLED`, `SCREEN_TIMEOUT_MIN`…) | `settingsLoad`, `settingsSave*` |
 | `src/ui.cpp` | LVGL TabView: Flow (схема потоков), Battery, Grid, Solar, Settings (скрыта в таббаре), статус-бар | `uiBuild`, `uiUpdate`, `uiUpdateStatusBar` |

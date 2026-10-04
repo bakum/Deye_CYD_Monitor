@@ -225,7 +225,7 @@ static void flowMakeTapTarget(lv_obj_t* obj, UiTabIndex tab_idx) {
     }
 }
 
-/** Узел-шкала: дуга 270° (0..FLOW_GAUGE_MAX_W), иконка в центре (если задана), значение под дугой.
+/** Узел-шкала: дуга 270° (доли 0..1000 от INVERTER_POWER_W), иконка в центре (если задана), значение под дугой.
  *  Контейнер 76×76 шире дуги, чтобы длинное значение («12.50 kW») не обрезалось. (arc_x, arc_y) — угол дуги. */
 static FlowGauge flowMakeGauge(lv_obj_t* parent, lv_coord_t arc_x, lv_coord_t arc_y,
                                const lv_img_dsc_t* icon, lv_color_t icon_color, UiTabIndex tab_idx) {
@@ -244,7 +244,8 @@ static FlowGauge flowMakeGauge(lv_obj_t* parent, lv_coord_t arc_x, lv_coord_t ar
     lv_obj_set_pos(g.arc, 5, 0);
     lv_arc_set_rotation(g.arc, 135);
     lv_arc_set_bg_angles(g.arc, 0, 270);
-    lv_arc_set_range(g.arc, 0, FLOW_GAUGE_MAX_W);
+    // Доли, а не ватты: диапазон дуги 16-битный, 50 kW в W не помещаются.
+    lv_arc_set_range(g.arc, 0, 1000);
     lv_arc_set_value(g.arc, 0);
     lv_obj_remove_style(g.arc, NULL, LV_PART_KNOB);
     lv_obj_set_style_pad_all(g.arc, 0, 0);
@@ -272,10 +273,12 @@ static FlowGauge flowMakeGauge(lv_obj_t* parent, lv_coord_t arc_x, lv_coord_t ar
     return g;
 }
 
-/** Обновить шкалу: дуга по модулю мощности (с ограничением шкалы), цвет заполнения, подпись. */
+/** Обновить шкалу: дуга по модулю мощности относительно номинала инвертора (не больше полной),
+ *  цвет заполнения, подпись. Номинал читается каждый раз — смена в портале видна без перезагрузки. */
 static void flowSetGauge(FlowGauge& g, int32_t w, lv_color_t color) {
     int32_t a = w < 0 ? -w : w;
-    lv_arc_set_value(g.arc, a > FLOW_GAUGE_MAX_W ? FLOW_GAUGE_MAX_W : a);
+    int32_t permille = (int32_t)((int64_t)a * 1000 / (int32_t)INVERTER_POWER_W);
+    lv_arc_set_value(g.arc, permille > 1000 ? 1000 : permille);
     lv_obj_set_style_arc_color(g.arc, color, LV_PART_INDICATOR);
     lv_label_set_text(g.value, flowFormatPower(w).c_str());
 }

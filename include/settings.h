@@ -10,6 +10,7 @@ extern uint32_t INVERTER_SN;
 extern uint8_t INVERTER_SLAVE_ID;
 extern int TIMEZONE_HOUR;
 extern bool DST_ENABLED;
+extern uint32_t INVERTER_POWER_W;   // номинальная мощность, W (предел шкал Flow)
 
 // --- Настройки экрана и состояние ---
 extern int SCREEN_TIMEOUT_MIN;
@@ -22,7 +23,8 @@ extern bool shouldSaveConfig;
 void settingsLoad();
 
 /** Сохранить параметры после успешного сохранения в портале WiFiManager. */
-void settingsSaveAfterWifi(const char* ip, int port, uint32_t sn, uint8_t slaveId, int tz, bool dst);
+void settingsSaveAfterWifi(const char* ip, int port, uint32_t sn, uint8_t slaveId, int tz, bool dst,
+                           uint32_t powerW);
 
 /** Сохранить таймаут экрана в NVS (вызывается из UI). */
 void settingsSaveScreenTimeout(int min);

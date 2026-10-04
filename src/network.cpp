@@ -1,4 +1,5 @@
 #include "network.h"
+#include "config.h"
 #include "settings.h"
 #include "inverter.h"
 #include <WiFi.h>
@@ -29,6 +30,10 @@ bool networkSetup(NetworkStatusTextFn statusTextCallback) {
     sprintf(slaveIdStr, "%d", INVERTER_SLAVE_ID);
     sprintf(tzStr, "%d", TIMEZONE_HOUR);
     sprintf(dstStr, "%d", DST_ENABLED ? 1 : 0);
+    // Мощность в kW: целое без дроби (5, 10), иначе с одним знаком (3.6)
+    char powerStr[8];
+    if (INVERTER_POWER_W % 1000 == 0) sprintf(powerStr, "%u", (unsigned)(INVERTER_POWER_W / 1000));
+    else sprintf(powerStr, "%.1f", INVERTER_POWER_W / 1000.0f);
 
     WiFiManagerParameter custom_inverter_ip("inverter_ip", "Inverter IP", INVERTER_IP, 16);
     WiFiManagerParameter custom_inverter_port("inverter_port", "Inverter Port", portStr, 6);
@@ -36,6 +41,7 @@ bool networkSetup(NetworkStatusTextFn statusTextCallback) {
     WiFiManagerParameter custom_slave_id("slave_id", "Modbus Slave ID", slaveIdStr, 3);
     WiFiManagerParameter custom_tz("tz_hour", "Timezone (Offset from UTC)", tzStr, 4);
     WiFiManagerParameter custom_dst("dst", "DST Enabled (1=Yes, 0=No)", dstStr, 2);
+    WiFiManagerParameter custom_power("inv_power", "Inverter rated power, kW (e.g. 3.6, 5, 10)", powerStr, 6);
 
     s_wm->addParameter(&custom_inverter_ip);
     s_wm->addParameter(&custom_inverter_port);
@@ -43,6 +49,7 @@ bool networkSetup(NetworkStatusTextFn statusTextCallback) {
     s_wm->addParameter(&custom_slave_id);
     s_wm->addParameter(&custom_tz);
     s_wm->addParameter(&custom_dst);
+    s_wm->addParameter(&custom_power);
     s_wm->setSaveParamsCallback(saveConfigCallback);
     s_wm->setConnectTimeout(WIFI_CONNECT_TIMEOUT_SEC);
     s_wm->setConfigPortalTimeout(WIFI_PORTAL_TIMEOUT_SEC);
@@ -77,7 +84,10 @@ bool networkSetup(NetworkStatusTextFn statusTextCallback) {
         uint8_t slaveId = (new_id > 0 && new_id < 255) ? (uint8_t)new_id : INVERTER_SLAVE_ID;
         int tz = atoi(custom_tz.getValue());
         bool dst = atoi(custom_dst.getValue()) == 1;
-        settingsSaveAfterWifi(INVERTER_IP, port, sn, slaveId, tz, dst);
+        // Вне 1..50 kW или нечитаемое значение — оставляем прежнюю мощность.
+        uint32_t powerW = (uint32_t)(atof(custom_power.getValue()) * 1000.0f + 0.5f);
+        if (powerW < INVERTER_POWER_MIN_W || powerW > INVERTER_POWER_MAX_W) powerW = INVERTER_POWER_W;
+        settingsSaveAfterWifi(INVERTER_IP, port, sn, slaveId, tz, dst, powerW);
     }
 
     configTime(TIMEZONE_HOUR * 3600, DST_ENABLED ? 3600 : 0, "pool.ntp.org", "time.nist.gov", "time.windows.com");
