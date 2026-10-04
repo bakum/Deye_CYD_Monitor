@@ -27,7 +27,10 @@ void uiSetStatusText(const char* text);
 /** Показать/скрыть спиннер загрузки (для inverter). */
 void uiShowLoader(bool show);
 
-/** Получить TabView для проверки текущей вкладки и переключения (main loop). */
+/** Получить TabView для проверки текущей вкладки (main loop). */
 lv_obj_t* uiGetTabview();
+
+/** Переключить вкладку. Таббар скрыт, поэтому заодно показывает/прячет кнопку возврата на Flow. */
+void uiSetTab(UiTabIndex idx);
 
 #endif

@@ -35,6 +35,15 @@ static lv_obj_t* label_pv2_volts;
 static lv_obj_t* label_pv2_amps;
 static lv_obj_t* label_pv2_watts;
 static lv_obj_t* arc_loader;
+static lv_obj_t* btn_back;
+
+/** Кнопка «‹» видна на всех вкладках, кроме Flow. */
+static void uiUpdateBackButton() {
+    if (lv_tabview_get_tab_act(tabview) == UI_TAB_FLOW)
+        lv_obj_add_flag(btn_back, LV_OBJ_FLAG_HIDDEN);
+    else
+        lv_obj_clear_flag(btn_back, LV_OBJ_FLAG_HIDDEN);
+}
 // Вкладка Flow: схема потоков энергии в стиле панели Deye
 /** Шкала-дуга узла: заполняется пропорционально мощности, под ней подпись значения. */
 struct FlowGauge {
@@ -69,7 +78,8 @@ static lv_color_t colorOrangeArc() {
 }
 
 // --- Вкладка Flow ---
-// Координаты в пикселях вкладки (320×200, отступы 0). Сверху ~22 px занимает статус-бар.
+// Координаты в пикселях контента вкладки (320×220 под отступом сверху 20 px).
+// Статус-бар перекрывает ~22 px экрана, то есть первые ~2 px контента.
 // Дуги 66×66 по углам: левые x 6..72, правые x 248..314; верхние y 24..90, нижние y 112..178.
 // В центре кружок статуса 44×44: x 138..182, y 83..127. Линии пунктирные, только горизонтальные
 // и вертикальные отрезки (в LVGL 8 пунктир рисуется только для них).
@@ -201,7 +211,7 @@ static String flowFormatPower(int32_t w) {
 
 /** Тап по узлу или его подписи открывает вкладку с подробностями (индекс в user_data). */
 static void flow_node_click_cb(lv_event_t* e) {
-    lv_tabview_set_act(tabview, (uint32_t)(uintptr_t)lv_event_get_user_data(e), LV_ANIM_ON);
+    uiSetTab((UiTabIndex)(uintptr_t)lv_event_get_user_data(e));
 }
 
 /** Сделать объект кнопкой перехода на вкладку. Дети (дуга, иконка, текст) передают нажатие родителю. */
@@ -285,6 +295,8 @@ static void buildFlowTab(lv_obj_t* tab) {
     lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(tab, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_style_pad_all(tab, 0, 0);
+    // Таббар скрыт, вкладка 240 px: опускаем всю схему на 20 px, координаты ниже не меняются.
+    lv_obj_set_style_pad_top(tab, 20, 0);
 
     static lv_style_t style_flow_line;
     lv_style_init(&style_flow_line);
@@ -417,6 +429,11 @@ void uiBuild() {
     lv_style_set_text_color(&style_label_gray, lv_palette_main(LV_PALETTE_GREY));
 
     tabview = lv_tabview_create(lv_scr_act(), LV_DIR_BOTTOM, 40);
+    // Таббар скрыт целиком: контент вкладок занимает весь экран, вкладки открываются тапом по Flow.
+    // Прятать до построения вкладок: lv_obj_align_to считает позицию один раз, и надписи
+    // на Battery иначе остались бы на месте, а дуга (lv_obj_align) уехала бы вниз.
+    lv_obj_t* tab_btns = lv_tabview_get_tab_btns(tabview);
+    lv_obj_add_flag(tab_btns, LV_OBJ_FLAG_HIDDEN);
     lv_obj_t* tab_flow = lv_tabview_add_tab(tabview, "Flow");
     lv_obj_t* tab_batt = lv_tabview_add_tab(tabview, "Battery");
     lv_obj_t* tab_grid = lv_tabview_add_tab(tabview, "Grid");
@@ -473,7 +490,7 @@ void uiBuild() {
     // Reboot / Reset WiFi
     lv_obj_t* btn_reboot = lv_btn_create(tab_settings);
     lv_obj_set_size(btn_reboot, 100, 35);
-    lv_obj_align(btn_reboot, LV_ALIGN_BOTTOM_LEFT, 20, 0);
+    lv_obj_align(btn_reboot, LV_ALIGN_BOTTOM_LEFT, 10, 0);
     lv_obj_add_event_cb(btn_reboot, btn_reboot_event_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t* label_btn_r = lv_label_create(btn_reboot);
     lv_label_set_text(label_btn_r, "Reboot");
@@ -481,7 +498,8 @@ void uiBuild() {
 
     lv_obj_t* btn_reset = lv_btn_create(tab_settings);
     lv_obj_set_size(btn_reset, 100, 35);
-    lv_obj_align(btn_reset, LV_ALIGN_BOTTOM_RIGHT, -20, 0);
+    // Обе кнопки слева: правый нижний угол занят кнопкой возврата на Flow.
+    lv_obj_align(btn_reset, LV_ALIGN_BOTTOM_LEFT, 120, 0);
     lv_obj_set_style_bg_color(btn_reset, lv_palette_main(LV_PALETTE_RED), 0);
     lv_obj_add_event_cb(btn_reset, btn_reset_wifi_event_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t* label_btn_w = lv_label_create(btn_reset);
@@ -686,10 +704,21 @@ void uiBuild() {
     lv_obj_set_style_text_font(label_status, &lv_font_montserrat_14, 0);
     lv_obj_align(label_status, LV_ALIGN_TOP_LEFT, 5, 5);
 
+    // Кнопка возврата на Flow: таббар скрыт, вкладки открываются тапом по узлам схемы.
+    btn_back = lv_btn_create(top_layer);
+    lv_obj_set_size(btn_back, 40, 40);
+    lv_obj_set_style_radius(btn_back, LV_RADIUS_CIRCLE, 0);
+    lv_obj_align(btn_back, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
+    lv_obj_add_event_cb(btn_back, [](lv_event_t* e) { uiSetTab(UI_TAB_FLOW); }, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* label_back = lv_label_create(btn_back);
+    lv_label_set_text(label_back, LV_SYMBOL_LEFT);
+    lv_obj_center(label_back);
+
     lv_timer_create([](lv_timer_t* t) { uiUpdateStatusBar(); }, 1000, NULL);
 
-    lv_obj_t* tab_btns = lv_tabview_get_tab_btns(tabview);
-    lv_btnmatrix_set_btn_ctrl(tab_btns, UI_TAB_SETTINGS, LV_BTNMATRIX_CTRL_HIDDEN);
+    // Свайп между вкладками остаётся — после него тоже обновляем кнопку возврата.
+    lv_obj_add_event_cb(tabview, [](lv_event_t* e) { uiUpdateBackButton(); }, LV_EVENT_VALUE_CHANGED, NULL);
+    uiUpdateBackButton();
 }
 
 void uiUpdate() {
@@ -932,6 +961,11 @@ void uiShowLoader(bool show) {
         lv_obj_clear_flag(arc_loader, LV_OBJ_FLAG_HIDDEN);
     else
         lv_obj_add_flag(arc_loader, LV_OBJ_FLAG_HIDDEN);
+}
+
+void uiSetTab(UiTabIndex idx) {
+    lv_tabview_set_act(tabview, idx, LV_ANIM_ON);
+    uiUpdateBackButton();
 }
 
 lv_obj_t* uiGetTabview() {

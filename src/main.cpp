@@ -64,7 +64,7 @@ void loop() {
                 backlightSet(settingsGetBrightness());
                 inverterSetLastUpdate(0);
             }
-            lv_tabview_set_act(uiGetTabview(), UI_TAB_SETTINGS, LV_ANIM_ON);
+            uiSetTab(UI_TAB_SETTINGS);
             Serial.println("BOOT: Settings");
         }
     } else {
