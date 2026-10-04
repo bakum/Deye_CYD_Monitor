@@ -359,6 +359,18 @@ static void buildFlowTab(lv_obj_t* tab) {
     lv_label_set_text(flow_status_label, "?");
     lv_obj_center(flow_status_label);
 
+    // Шестерёнка под кружком статуса: вход в Settings (кроме долгого BOOT).
+    lv_obj_t* gear = lv_label_create(tab);
+    lv_obj_set_size(gear, 40, 28);
+    lv_obj_set_pos(gear, 140, 182);
+    lv_obj_set_style_text_align(gear, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(gear, &lv_font_montserrat_22, 0);
+    lv_obj_set_style_text_color(gear, flowIdleColor(), 0);
+    lv_obj_set_style_text_color(gear, lv_palette_darken(LV_PALETTE_GREY, 3), LV_STATE_PRESSED);
+    lv_label_set_text(gear, LV_SYMBOL_SETTINGS);
+    lv_obj_set_ext_click_area(gear, 10);
+    flowMakeTapTarget(gear, UI_TAB_SETTINGS);
+
     flowMakeDot(tab, flow_pv);
     flowMakeDot(tab, flow_grid);
     flowMakeDot(tab, flow_batt);
