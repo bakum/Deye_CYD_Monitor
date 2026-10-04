@@ -60,8 +60,9 @@ static lv_obj_t* label_flow_grid_volts;
 static lv_obj_t* label_flow_pv_day;
 static lv_obj_t* label_flow_grid_day;
 static lv_obj_t* label_flow_load_day;
-static lv_obj_t* flow_status_ring;
-static lv_obj_t* flow_status_label;
+static lv_obj_t* flow_mix_arc;        // кольцо в центре: доля PV в энергии за сутки
+static lv_obj_t* label_flow_mix;      // «83% PV» под кольцом
+static lv_obj_t* flow_status_label;   // ON/OFF внутри кольца
 
 // Иконки вкладки Flow 32×32 (src/flow_icons.c, генерируются tools/gen_flow_icons.py)
 LV_IMG_DECLARE(flow_icon_pv);
@@ -83,13 +84,13 @@ static lv_color_t colorOrangeArc() {
 // Координаты в пикселях контента вкладки (320×220 под отступом сверху 20 px).
 // Статус-бар перекрывает ~22 px экрана, то есть первые ~2 px контента.
 // Дуги 66×66 по углам: левые x 6..72, правые x 248..314; верхние y 24..90, нижние y 112..178.
-// В центре кружок статуса 44×44: x 138..182, y 83..127. Линии пунктирные, только горизонтальные
+// В центре кольцо 52×52: x 134..186, y 79..131 (центр 160,105). Линии пунктирные, только горизонтальные
 // и вертикальные отрезки (в LVGL 8 пунктир рисуется только для них).
 static const lv_coord_t FLOW_GAUGE_SIZE = 66;
-static lv_point_t flow_pts_pv[]   = {{76, 57}, {110, 57}, {110, 96}, {140, 96}};
-static lv_point_t flow_pts_grid[] = {{244, 57}, {210, 57}, {210, 96}, {180, 96}};
-static lv_point_t flow_pts_batt[] = {{76, 145}, {110, 145}, {110, 114}, {140, 114}};
-static lv_point_t flow_pts_load[] = {{180, 114}, {210, 114}, {210, 145}, {244, 145}};
+static lv_point_t flow_pts_pv[]   = {{76, 57}, {110, 57}, {110, 96}, {136, 96}};
+static lv_point_t flow_pts_grid[] = {{244, 57}, {210, 57}, {210, 96}, {184, 96}};
+static lv_point_t flow_pts_batt[] = {{76, 145}, {110, 145}, {110, 114}, {136, 114}};
+static lv_point_t flow_pts_load[] = {{184, 114}, {210, 114}, {210, 145}, {244, 145}};
 
 /** Связь узла с инвертором: пунктир, стрелка и бегущая точка. */
 struct FlowLink {
@@ -357,16 +358,32 @@ static void buildFlowTab(lv_obj_t* tab) {
     lv_label_set_text(label_flow_batt_temp, "-- °C");
     flowMakeTapTarget(label_flow_batt_temp, UI_TAB_BATTERY);
 
-    // Центр: кружок статуса инвертора (ON — данные свежие), обновляется в uiUpdateStatusBar().
-    flow_status_ring = lv_obj_create(tab);
-    lv_obj_set_size(flow_status_ring, 44, 44);
-    lv_obj_set_pos(flow_status_ring, 138, 83);
-    lv_obj_clear_flag(flow_status_ring, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_pad_all(flow_status_ring, 0, 0);
-    lv_obj_set_style_radius(flow_status_ring, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(flow_status_ring, 3, 0);
-    lv_obj_set_style_border_color(flow_status_ring, flowIdleColor(), 0);
-    flow_status_label = lv_label_create(flow_status_ring);
+    // Центр: кольцо-диаграмма энергии за сутки — оранжевое PV, красное куплено из сети
+    // (обновляется в uiUpdate). Внутри статус инвертора ON/OFF (в uiUpdateStatusBar).
+    flow_mix_arc = lv_arc_create(tab);
+    lv_obj_set_size(flow_mix_arc, 52, 52);
+    lv_obj_set_pos(flow_mix_arc, 134, 79);
+    lv_arc_set_rotation(flow_mix_arc, 270);   // сектор PV начинается сверху
+    lv_arc_set_bg_angles(flow_mix_arc, 0, 360);
+    lv_arc_set_range(flow_mix_arc, 0, 1000);
+    lv_arc_set_value(flow_mix_arc, 0);
+    lv_obj_remove_style(flow_mix_arc, NULL, LV_PART_KNOB);
+    lv_obj_clear_flag(flow_mix_arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_pad_all(flow_mix_arc, 0, 0);
+    lv_obj_set_style_arc_width(flow_mix_arc, 8, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(flow_mix_arc, 8, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(flow_mix_arc, false, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(flow_mix_arc, flowIdleColor(), LV_PART_MAIN);
+    // Янтарный против тёмно-красного: оранжевый и красный на CYD сливаются.
+    lv_obj_set_style_arc_color(flow_mix_arc, lv_palette_main(LV_PALETTE_AMBER), LV_PART_INDICATOR);
+    label_flow_mix = lv_label_create(tab);
+    lv_obj_set_width(label_flow_mix, 60);
+    lv_obj_set_pos(label_flow_mix, 130, 134);
+    lv_obj_set_style_text_align(label_flow_mix, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(label_flow_mix, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(label_flow_mix, colorOrangeText(), 0);
+    lv_label_set_text(label_flow_mix, "");
+    flow_status_label = lv_label_create(flow_mix_arc);
     lv_obj_set_style_text_font(flow_status_label, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(flow_status_label, flowIdleColor(), 0);
     lv_label_set_text(flow_status_label, "?");
@@ -855,7 +872,22 @@ void uiUpdate() {
     lv_label_set_text(label_flow_pv_day, (String(pvDay, 1) + " kWh").c_str());
 
     lv_label_set_text(label_flow_grid_volts, (String(gridV, 1) + " V").c_str());
-    lv_label_set_text(label_flow_grid_day, (String(inverterGetDayGridBuy(), 1) + " kWh").c_str());
+    float gridBuyDay = inverterGetDayGridBuy();
+    lv_label_set_text(label_flow_grid_day, (String(gridBuyDay, 1) + " kWh").c_str());
+
+    // Кольцо: доля PV в энергии за сутки = PV / (PV + куплено). Фон красный — куплено из сети.
+    float mixTotal = pvDay + gridBuyDay;
+    if (mixTotal >= 0.1f) {
+        int32_t pvShare = (int32_t)(pvDay * 1000.0f / mixTotal + 0.5f);
+        lv_arc_set_value(flow_mix_arc, pvShare);
+        lv_obj_set_style_arc_color(flow_mix_arc, lv_palette_darken(LV_PALETTE_RED, 2), LV_PART_MAIN);
+        lv_label_set_text(label_flow_mix, (String((pvShare + 5) / 10) + "% PV").c_str());
+    } else {
+        // В начале суток счётчики нулевые — серое кольцо без подписи.
+        lv_arc_set_value(flow_mix_arc, 0);
+        lv_obj_set_style_arc_color(flow_mix_arc, flowIdleColor(), LV_PART_MAIN);
+        lv_label_set_text(label_flow_mix, "");
+    }
     if (gridPwr > 10) {
         flowSetGauge(gauge_grid, gridPwr, lv_palette_main(LV_PALETTE_RED));
         flowSetLink(flow_grid, 1, LV_SYMBOL_LEFT, lv_palette_main(LV_PALETTE_RED));
@@ -959,17 +991,15 @@ void uiUpdateStatusBar() {
         else                 invPart = "INV!";  // давно не обновлялось
     }
 
-    // Кружок статуса на вкладке Flow: ON — данные свежие, OFF — инвертор давно не отвечает.
+    // Статус в центре кольца на Flow (только цветом текста — кольцо занято диаграммой):
+    // ON — данные свежие, OFF — инвертор давно не отвечает.
     if (invLastOk == 0) {
         lv_label_set_text(flow_status_label, "?");
         lv_obj_set_style_text_color(flow_status_label, flowIdleColor(), 0);
-        lv_obj_set_style_border_color(flow_status_ring, flowIdleColor(), 0);
     } else {
         bool fresh = invPart == "INV";
-        lv_color_t c = lv_palette_main(fresh ? LV_PALETTE_GREEN : LV_PALETTE_RED);
         lv_label_set_text(flow_status_label, fresh ? "ON" : "OFF");
-        lv_obj_set_style_text_color(flow_status_label, c, 0);
-        lv_obj_set_style_border_color(flow_status_ring, c, 0);
+        lv_obj_set_style_text_color(flow_status_label, lv_palette_main(fresh ? LV_PALETTE_GREEN : LV_PALETTE_RED), 0);
     }
 
     // Строка: батарея, мощность, дата+время, статус инвертора, уровень Wi‑Fi.
