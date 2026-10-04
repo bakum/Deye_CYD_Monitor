@@ -48,6 +48,7 @@ static FlowGauge gauge_load;
 static lv_obj_t* label_flow_soc;
 static lv_obj_t* label_flow_batt_temp;
 static lv_obj_t* label_flow_grid_volts;
+static lv_obj_t* label_flow_pv_day;
 static lv_obj_t* flow_status_ring;
 static lv_obj_t* flow_status_label;
 
@@ -324,6 +325,9 @@ static void buildFlowTab(lv_obj_t* tab) {
     label_flow_grid_volts = flowMakeNote(tab, 164, 36, LV_TEXT_ALIGN_RIGHT);
     lv_label_set_text(label_flow_grid_volts, "-- V");
     flowMakeTapTarget(label_flow_grid_volts, UI_TAB_GRID);
+    label_flow_pv_day = flowMakeNote(tab, 76, 36, LV_TEXT_ALIGN_LEFT);
+    lv_label_set_text(label_flow_pv_day, "-- kWh");
+    flowMakeTapTarget(label_flow_pv_day, UI_TAB_SOLAR);
     label_flow_batt_temp = flowMakeNote(tab, 76, 152, LV_TEXT_ALIGN_LEFT);
     lv_label_set_text(label_flow_batt_temp, "-- °C");
     flowMakeTapTarget(label_flow_batt_temp, UI_TAB_BATTERY);
@@ -794,6 +798,7 @@ void uiUpdate() {
     const bool pvOn = pvTotal > 10;
     flowSetGauge(gauge_pv, pvTotal, pvOn ? colorOrangeArc() : idle);
     flowSetLink(flow_pv, pvOn ? 1 : 0, LV_SYMBOL_RIGHT, colorOrangeText());
+    lv_label_set_text(label_flow_pv_day, (String(pvDay, 1) + " kWh").c_str());
 
     lv_label_set_text(label_flow_grid_volts, (String(gridV, 1) + " V").c_str());
     if (gridPwr > 10) {
