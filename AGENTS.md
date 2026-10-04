@@ -6,6 +6,8 @@
 
 Прошивка для **ESP32-2432S028 (CYD, «Cheap Yellow Display»)**: по Wi‑Fi опрашивает гибридный инвертор **Deye** через логгер Solarman (протокол **Solarman V5**, внутри Modbus RTU, TCP-порт 8899) и показывает данные батареи, сети, нагрузки и солнечных панелей на экране 320×240 с тачем.
 
+**Только однофазные гибриды Deye (серия LP1).** Трёхфазные (LP3/HP3) будут отдельной прошивкой. В этот проект поддержку трёх фаз, профили инверторов и вторую карту регистров не добавлять.
+
 - Железо: дисплей ILI9341 (TFT_eSPI, пины в `platformio.ini`, rotation 1, подсветка на GPIO21 через PWM), тач XPT2046 (отдельная шина HSPI, пины в `include/config.h`), кнопка BOOT (GPIO0: долгое нажатие открывает Settings).
 - Стек: PlatformIO, framework Arduino, `lvgl@^8.3` (API v8, **не v9**), `TFT_eSPI`, `WiFiManager`, `XPT2046_Touchscreen` (из git).
 - Конфигурация TFT/LVGL задаётся только через `build_flags` в `platformio.ini` (`USER_SETUP_LOADED`, `LV_CONF_SKIP`), отдельных `User_Setup.h` и `lv_conf.h` нет. Шрифты Montserrat включаются там же флагами `LV_FONT_MONTSERRAT_*`.
