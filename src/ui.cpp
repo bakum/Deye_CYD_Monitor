@@ -61,8 +61,9 @@ static lv_obj_t* label_flow_grid_volts;
 static lv_obj_t* label_flow_pv_day;
 static lv_obj_t* label_flow_grid_day;
 static lv_obj_t* label_flow_load_day;
-static lv_obj_t* flow_mix_arc;        // кольцо в центре: доля PV в энергии за сутки
-static lv_obj_t* label_flow_mix;      // «83% PV» под кольцом
+static lv_obj_t* flow_mix_arc;        // кольцо в центре: фон «сеть», заполнение PV + разряд батареи
+static lv_obj_t* flow_mix_arc_pv;     // поверх: заполнение PV
+static lv_obj_t* label_flow_mix;      // «90% own» под кольцом
 static lv_obj_t* flow_status_label;   // ON/OFF внутри кольца
 
 // Иконки вкладки Flow 32×32 (src/flow_icons.c, генерируются tools/gen_flow_icons.py)
@@ -298,6 +299,25 @@ static lv_obj_t* flowMakeNote(lv_obj_t* parent, lv_coord_t x, lv_coord_t y, lv_t
     return label;
 }
 
+/** Кольцо 52×52 в центре Flow: полный круг, отсчёт сверху по часовой, доли 0..1000. */
+static lv_obj_t* flowMakeMixArc(lv_obj_t* parent, lv_color_t indicator) {
+    lv_obj_t* arc = lv_arc_create(parent);
+    lv_obj_set_size(arc, 52, 52);
+    lv_obj_set_pos(arc, 134, 79);
+    lv_arc_set_rotation(arc, 270);
+    lv_arc_set_bg_angles(arc, 0, 360);
+    lv_arc_set_range(arc, 0, 1000);
+    lv_arc_set_value(arc, 0);
+    lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_pad_all(arc, 0, 0);
+    lv_obj_set_style_arc_width(arc, 8, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 8, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(arc, false, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, indicator, LV_PART_INDICATOR);
+    return arc;
+}
+
 static void buildFlowTab(lv_obj_t* tab) {
     lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(tab, LV_SCROLLBAR_MODE_OFF);
@@ -366,32 +386,24 @@ static void buildFlowTab(lv_obj_t* tab) {
     lv_label_set_text(label_flow_batt_temp, "-- °C");
     flowMakeTapTarget(label_flow_batt_temp, UI_TAB_BATTERY);
 
-    // Центр: кольцо-диаграмма энергии за сутки — оранжевое PV, красное куплено из сети
-    // (обновляется в uiUpdate). Внутри статус инвертора ON/OFF (в uiUpdateStatusBar).
-    flow_mix_arc = lv_arc_create(tab);
-    lv_obj_set_size(flow_mix_arc, 52, 52);
-    lv_obj_set_pos(flow_mix_arc, 134, 79);
-    lv_arc_set_rotation(flow_mix_arc, 270);   // сектор PV начинается сверху
-    lv_arc_set_bg_angles(flow_mix_arc, 0, 360);
-    lv_arc_set_range(flow_mix_arc, 0, 1000);
-    lv_arc_set_value(flow_mix_arc, 0);
-    lv_obj_remove_style(flow_mix_arc, NULL, LV_PART_KNOB);
-    lv_obj_clear_flag(flow_mix_arc, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_pad_all(flow_mix_arc, 0, 0);
-    lv_obj_set_style_arc_width(flow_mix_arc, 8, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(flow_mix_arc, 8, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_rounded(flow_mix_arc, false, LV_PART_INDICATOR);
+    // Центр: кольцо-диаграмма источников энергии за сутки (обновляется в uiUpdate):
+    // янтарный — PV, бирюзовый — разряд батареи, тёмно-красный — куплено из сети.
+    // У lv_arc только два цвета, поэтому две дуги друг над другом: нижняя — фон «сеть»
+    // и заполнение PV+батарея, верхняя — прозрачный фон и заполнение PV.
+    // Внутри статус инвертора ON/OFF (в uiUpdateStatusBar).
+    flow_mix_arc = flowMakeMixArc(tab, lv_palette_main(LV_PALETTE_TEAL));
     lv_obj_set_style_arc_color(flow_mix_arc, flowIdleColor(), LV_PART_MAIN);
     // Янтарный против тёмно-красного: оранжевый и красный на CYD сливаются.
-    lv_obj_set_style_arc_color(flow_mix_arc, lv_palette_main(LV_PALETTE_AMBER), LV_PART_INDICATOR);
+    flow_mix_arc_pv = flowMakeMixArc(tab, lv_palette_main(LV_PALETTE_AMBER));
+    lv_obj_set_style_arc_opa(flow_mix_arc_pv, LV_OPA_TRANSP, LV_PART_MAIN);
     label_flow_mix = lv_label_create(tab);
-    lv_obj_set_width(label_flow_mix, 60);
-    lv_obj_set_pos(label_flow_mix, 130, 134);
+    lv_obj_set_width(label_flow_mix, 80);     // «100% own» в одну строку
+    lv_obj_set_pos(label_flow_mix, 120, 134);
     lv_obj_set_style_text_align(label_flow_mix, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(label_flow_mix, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(label_flow_mix, colorOrangeText(), 0);
+    lv_obj_set_style_text_color(label_flow_mix, lv_palette_darken(LV_PALETTE_GREEN, 2), 0);
     lv_label_set_text(label_flow_mix, "");
-    flow_status_label = lv_label_create(flow_mix_arc);
+    flow_status_label = lv_label_create(flow_mix_arc_pv);
     lv_obj_set_style_text_font(flow_status_label, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(flow_status_label, flowIdleColor(), 0);
     lv_label_set_text(flow_status_label, "?");
@@ -883,15 +895,20 @@ void uiUpdate() {
     float gridBuyDay = inverterGetDayGridBuy();
     lv_label_set_text(label_flow_grid_day, (String(gridBuyDay, 1) + " kWh").c_str());
 
-    // Кольцо: доля PV в энергии за сутки = PV / (PV + куплено). Фон красный — куплено из сети.
-    float mixTotal = pvDay + gridBuyDay;
+    // Кольцо: источники энергии за сутки — PV, разряд батареи, куплено из сети.
+    // Подпись «own» — доля без сети: 1 − куплено / всего.
+    float battDisDay = inverterGetDayBattDischarge();
+    float mixTotal = pvDay + battDisDay + gridBuyDay;
     if (mixTotal >= 0.1f) {
         int32_t pvShare = (int32_t)(pvDay * 1000.0f / mixTotal + 0.5f);
-        lv_arc_set_value(flow_mix_arc, pvShare);
+        int32_t ownShare = (int32_t)((pvDay + battDisDay) * 1000.0f / mixTotal + 0.5f);
+        lv_arc_set_value(flow_mix_arc_pv, pvShare);
+        lv_arc_set_value(flow_mix_arc, ownShare);
         lv_obj_set_style_arc_color(flow_mix_arc, lv_palette_darken(LV_PALETTE_RED, 2), LV_PART_MAIN);
-        lv_label_set_text(label_flow_mix, (String((pvShare + 5) / 10) + "% PV").c_str());
+        lv_label_set_text(label_flow_mix, (String((ownShare + 5) / 10) + "% own").c_str());
     } else {
         // В начале суток счётчики нулевые — серое кольцо без подписи.
+        lv_arc_set_value(flow_mix_arc_pv, 0);
         lv_arc_set_value(flow_mix_arc, 0);
         lv_obj_set_style_arc_color(flow_mix_arc, flowIdleColor(), LV_PART_MAIN);
         lv_label_set_text(label_flow_mix, "");
