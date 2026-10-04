@@ -62,6 +62,11 @@ static lv_color_t colorOrangeText() {
     return lv_palette_darken(LV_PALETTE_ORANGE, 3);
 }
 
+/** Оранжевый для дуг Flow: палитровый на CYD выглядит жёлтым. */
+static lv_color_t colorOrangeArc() {
+    return lv_palette_darken(LV_PALETTE_ORANGE, 2);
+}
+
 // --- Вкладка Flow ---
 // Координаты в пикселях вкладки (320×200, отступы 0). Сверху ~22 px занимает статус-бар.
 // Дуги 66×66 по углам: левые x 6..72, правые x 248..314; верхние y 24..90, нижние y 112..178.
@@ -117,14 +122,13 @@ static void flowMakeDot(lv_obj_t* parent, FlowLink& link) {
     lv_obj_add_flag(link.dot, LV_OBJ_FLAG_HIDDEN);
 }
 
-/** Анимация: v — пройденное расстояние по пути в px. Отрезки только горизонтальные/вертикальные. */
-static void flowDotAnimCb(void* var, int32_t v) {
-    FlowLink* link = (FlowLink*)var;
-    int32_t d = link->dir < 0 ? (int32_t)link->len - v : v;
-    lv_coord_t x = link->pts[0].x, y = link->pts[0].y;
-    for (uint16_t i = 0; i + 1 < link->n; i++) {
-        const lv_point_t& a = link->pts[i];
-        const lv_point_t& b = link->pts[i + 1];
+/** Точка на пути на расстоянии d px от первой точки. Отрезки только горизонтальные/вертикальные. */
+static void flowPathPoint(const FlowLink& link, int32_t d, lv_coord_t& x, lv_coord_t& y) {
+    x = link.pts[0].x;
+    y = link.pts[0].y;
+    for (uint16_t i = 0; i + 1 < link.n; i++) {
+        const lv_point_t& a = link.pts[i];
+        const lv_point_t& b = link.pts[i + 1];
         int32_t seg = abs(b.x - a.x) + abs(b.y - a.y);
         int32_t step = d < seg ? d : seg;
         x = a.x + (b.x > a.x ? step : (b.x < a.x ? -step : 0));
@@ -132,14 +136,20 @@ static void flowDotAnimCb(void* var, int32_t v) {
         if (d <= seg) break;
         d -= seg;
     }
+}
+
+/** Анимация: v — пройденное расстояние по пути в px. */
+static void flowDotAnimCb(void* var, int32_t v) {
+    FlowLink* link = (FlowLink*)var;
+    lv_coord_t x, y;
+    flowPathPoint(*link, link->dir < 0 ? (int32_t)link->len - v : v, x, y);
     lv_obj_set_pos(link->dot, x - 3, y - 3);
 }
 
-/** Стрелка направления на линии: белый фон закрывает пунктир под ней. (x, y) — центр. */
-static lv_obj_t* flowMakeArrow(lv_obj_t* parent, lv_coord_t x, lv_coord_t y) {
+/** Стрелка направления на линии: белый фон закрывает пунктир под ней. Позицию задаёт flowSetLink. */
+static lv_obj_t* flowMakeArrow(lv_obj_t* parent) {
     lv_obj_t* arrow = lv_label_create(parent);
     lv_obj_set_size(arrow, 16, 16);
-    lv_obj_set_pos(arrow, x - 8, y - 8);
     lv_obj_set_style_text_align(arrow, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_bg_color(arrow, lv_color_white(), 0);
     lv_obj_set_style_bg_opa(arrow, LV_OPA_COVER, 0);
@@ -149,10 +159,14 @@ static lv_obj_t* flowMakeArrow(lv_obj_t* parent, lv_coord_t x, lv_coord_t y) {
 }
 
 /** Активная линия красится в цвет потока, показывает стрелку и бегущую точку; неактивная — серая.
+ *  Стрелка стоит у того конца линии, куда идёт поток (на 9 px от конца, чтобы не залезать на узел).
  *  Анимация перезапускается только при смене направления, иначе точка дёргалась бы каждый опрос. */
 static void flowSetLink(FlowLink& link, int8_t dir, const char* symbol, lv_color_t color) {
     if (dir != 0) {
         lv_obj_set_style_line_color(link.line, color, 0);
+        lv_coord_t ax, ay;
+        flowPathPoint(link, dir > 0 ? (int32_t)link.len - 9 : 9, ax, ay);
+        lv_obj_set_pos(link.arrow, ax - 8, ay - 8);
         lv_label_set_text(link.arrow, symbol);
         lv_obj_set_style_text_color(link.arrow, color, 0);
         lv_obj_clear_flag(link.arrow, LV_OBJ_FLAG_HIDDEN);
@@ -334,10 +348,10 @@ static void buildFlowTab(lv_obj_t* tab) {
     flowMakeDot(tab, flow_batt);
     flowMakeDot(tab, flow_load);
 
-    flow_pv.arrow = flowMakeArrow(tab, 124, 96);
-    flow_grid.arrow = flowMakeArrow(tab, 196, 96);
-    flow_batt.arrow = flowMakeArrow(tab, 124, 114);
-    flow_load.arrow = flowMakeArrow(tab, 196, 114);
+    flow_pv.arrow = flowMakeArrow(tab);
+    flow_grid.arrow = flowMakeArrow(tab);
+    flow_batt.arrow = flowMakeArrow(tab);
+    flow_load.arrow = flowMakeArrow(tab);
 }
 
 // --- Callbacks ---
@@ -778,7 +792,7 @@ void uiUpdate() {
     // Flow: дуги заполняются по мощности, стрелки показывают направление относительно центра.
     lv_color_t idle = flowIdleColor();
     const bool pvOn = pvTotal > 10;
-    flowSetGauge(gauge_pv, pvTotal, pvOn ? lv_palette_main(LV_PALETTE_ORANGE) : idle);
+    flowSetGauge(gauge_pv, pvTotal, pvOn ? colorOrangeArc() : idle);
     flowSetLink(flow_pv, pvOn ? 1 : 0, LV_SYMBOL_RIGHT, colorOrangeText());
 
     lv_label_set_text(label_flow_grid_volts, (String(gridV, 1) + " V").c_str());
@@ -803,7 +817,7 @@ void uiUpdate() {
     else
         lv_obj_set_style_text_color(label_flow_batt_temp, lv_palette_main(LV_PALETTE_GREY), 0);
     if (battPwr > 10) {
-        flowSetGauge(gauge_batt, battPwr, lv_palette_main(LV_PALETTE_ORANGE));
+        flowSetGauge(gauge_batt, battPwr, colorOrangeArc());
         flowSetLink(flow_batt, 1, LV_SYMBOL_RIGHT, colorOrangeText());
     } else if (battPwr < -10) {
         flowSetGauge(gauge_batt, battPwr, lv_palette_main(LV_PALETTE_GREEN));
