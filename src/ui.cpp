@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "config.h"
 #include "settings.h"
 #include "inverter.h"
 #include "display.h"
@@ -34,21 +35,26 @@ static lv_obj_t* label_pv2_volts;
 static lv_obj_t* label_pv2_amps;
 static lv_obj_t* label_pv2_watts;
 static lv_obj_t* arc_loader;
-// Вкладка Flow: схема потоков энергии
-static lv_obj_t* label_flow_pv;
-static lv_obj_t* label_flow_grid;
-static lv_obj_t* label_flow_grid_volts;
-static lv_obj_t* label_flow_batt;
+// Вкладка Flow: схема потоков энергии в стиле панели Deye
+/** Шкала-дуга узла: заполняется пропорционально мощности, под ней подпись значения. */
+struct FlowGauge {
+    lv_obj_t* arc;
+    lv_obj_t* value;
+};
+static FlowGauge gauge_pv;
+static FlowGauge gauge_grid;
+static FlowGauge gauge_batt;
+static FlowGauge gauge_load;
 static lv_obj_t* label_flow_soc;
 static lv_obj_t* label_flow_batt_temp;
-static lv_obj_t* label_flow_load;
-static lv_obj_t* label_flow_home;
+static lv_obj_t* label_flow_grid_volts;
+static lv_obj_t* flow_status_ring;
+static lv_obj_t* flow_status_label;
 
-// Иконки вкладки Flow (src/flow_icons.c, генерируются tools/gen_flow_icons.py)
+// Иконки вкладки Flow 32×32 (src/flow_icons.c, генерируются tools/gen_flow_icons.py)
 LV_IMG_DECLARE(flow_icon_pv);
 LV_IMG_DECLARE(flow_icon_grid);
-LV_IMG_DECLARE(flow_icon_inverter);
-LV_IMG_DECLARE(flow_icon_load);
+LV_IMG_DECLARE(flow_icon_battery);
 LV_IMG_DECLARE(flow_icon_home);
 
 /** Оранжевый для текста: темнее палитрового, чтобы читался на белом фоне. */
@@ -57,14 +63,15 @@ static lv_color_t colorOrangeText() {
 }
 
 // --- Вкладка Flow ---
-// Координаты в пикселях вкладки (320×200, отступы 0). Сверху ~20 px занимает статус-бар.
-// Инвертор в центре: x 140..180, y 85..121. Линии пунктирные, только горизонтальные
+// Координаты в пикселях вкладки (320×200, отступы 0). Сверху ~22 px занимает статус-бар.
+// Дуги 66×66 по углам: левые x 6..72, правые x 248..314; верхние y 24..90, нижние y 112..178.
+// В центре кружок статуса 44×44: x 138..182, y 83..127. Линии пунктирные, только горизонтальные
 // и вертикальные отрезки (в LVGL 8 пунктир рисуется только для них).
-static lv_point_t flow_pts_pv[]   = {{58, 38}, {100, 38}, {100, 95}, {140, 95}};
-static lv_point_t flow_pts_grid[] = {{262, 38}, {220, 38}, {220, 95}, {180, 95}};
-static lv_point_t flow_pts_batt[] = {{58, 149}, {100, 149}, {100, 111}, {140, 111}};
-static lv_point_t flow_pts_load[] = {{160, 121}, {160, 132}, {210, 132}, {210, 142}};
-static lv_point_t flow_pts_home[] = {{180, 111}, {287, 111}, {287, 142}};
+static const lv_coord_t FLOW_GAUGE_SIZE = 66;
+static lv_point_t flow_pts_pv[]   = {{76, 57}, {110, 57}, {110, 96}, {140, 96}};
+static lv_point_t flow_pts_grid[] = {{244, 57}, {210, 57}, {210, 96}, {180, 96}};
+static lv_point_t flow_pts_batt[] = {{76, 145}, {110, 145}, {110, 114}, {140, 114}};
+static lv_point_t flow_pts_load[] = {{180, 114}, {210, 114}, {210, 145}, {244, 145}};
 
 /** Связь узла с инвертором: пунктир, стрелка и бегущая точка. */
 struct FlowLink {
@@ -76,12 +83,11 @@ struct FlowLink {
     lv_obj_t* dot;
     int8_t dir;        // 0 — потока нет, 1 — по порядку точек, -1 — обратно
 };
-// Точки pv/grid/batt идут от узла к инвертору, load и home — от инвертора к нагрузке.
+// Точки pv/grid/batt идут от узла к центру, load — от центра к нагрузке.
 static FlowLink flow_pv   = {flow_pts_pv, 4};
 static FlowLink flow_grid = {flow_pts_grid, 4};
 static FlowLink flow_batt = {flow_pts_batt, 4};
 static FlowLink flow_load = {flow_pts_load, 4};
-static FlowLink flow_home = {flow_pts_home, 3};
 
 static const uint32_t FLOW_DOT_MS_PER_PX = 20;  // скорость точки ~50 px/s
 
@@ -127,52 +133,6 @@ static void flowDotAnimCb(void* var, int32_t v) {
         d -= seg;
     }
     lv_obj_set_pos(link->dot, x - 3, y - 3);
-}
-
-/** Пустая плашка-узел 50×28 с рамкой. */
-static lv_obj_t* flowMakeBox(lv_obj_t* parent, lv_coord_t x, lv_coord_t y) {
-    lv_obj_t* box = lv_obj_create(parent);
-    lv_obj_set_size(box, 50, 28);
-    lv_obj_set_pos(box, x, y);
-    lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_pad_all(box, 0, 0);
-    lv_obj_set_style_radius(box, 6, 0);
-    lv_obj_set_style_border_width(box, 2, 0);
-    // Рамка обычного серого: светлее теряется у края экрана CYD, темнее спорит с линиями.
-    lv_obj_set_style_border_color(box, lv_palette_main(LV_PALETTE_GREY), 0);
-    return box;
-}
-
-/** Плашка-узел с текстом по центру. Возвращает метку внутри. */
-static lv_obj_t* flowMakeNode(lv_obj_t* parent, lv_coord_t x, lv_coord_t y, const char* text) {
-    lv_obj_t* label = lv_label_create(flowMakeBox(parent, x, y));
-    lv_label_set_text(label, text);
-    lv_obj_center(label);
-    return label;
-}
-
-/** Плашка-узел с иконкой 24×24 (альфа-маска, цвет через img_recolor). Возвращает плашку. */
-static lv_obj_t* flowMakeIconNode(lv_obj_t* parent, lv_coord_t x, lv_coord_t y,
-                                  const lv_img_dsc_t* icon, lv_color_t color) {
-    lv_obj_t* box = flowMakeBox(parent, x, y);
-    lv_obj_t* img = lv_img_create(box);
-    lv_img_set_src(img, icon);
-    lv_obj_set_style_img_recolor(img, color, 0);
-    lv_obj_set_style_img_recolor_opa(img, LV_OPA_COVER, 0);
-    lv_obj_center(img);
-    return box;
-}
-
-/** Подпись значения под узлом: ширина 100, выравнивание текста задаётся. */
-static lv_obj_t* flowMakeValue(lv_obj_t* parent, lv_coord_t x, lv_coord_t y, lv_text_align_t align) {
-    lv_obj_t* label = lv_label_create(parent);
-    lv_obj_set_width(label, 100);
-    lv_obj_set_pos(label, x, y);
-    lv_obj_set_style_text_align(label, align, 0);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
-    lv_label_set_text(label, "-- W");
-    return label;
 }
 
 /** Стрелка направления на линии: белый фон закрывает пунктир под ней. (x, y) — центр. */
@@ -229,7 +189,7 @@ static void flow_node_click_cb(lv_event_t* e) {
     lv_tabview_set_act(tabview, (uint32_t)(uintptr_t)lv_event_get_user_data(e), LV_ANIM_ON);
 }
 
-/** Сделать объект кнопкой перехода на вкладку. Дети (иконка, текст) передают нажатие родителю. */
+/** Сделать объект кнопкой перехода на вкладку. Дети (дуга, иконка, текст) передают нажатие родителю. */
 static void flowMakeTapTarget(lv_obj_t* obj, UiTabIndex tab_idx) {
     lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(obj, flow_node_click_cb, LV_EVENT_CLICKED, (void*)(uintptr_t)tab_idx);
@@ -240,11 +200,70 @@ static void flowMakeTapTarget(lv_obj_t* obj, UiTabIndex tab_idx) {
     }
 }
 
-/** Плашка-узел как кнопка: зона нажатия шире на 10 px, при нажатии фон темнеет. */
-static void flowMakeTapNode(lv_obj_t* box, UiTabIndex tab_idx) {
-    flowMakeTapTarget(box, tab_idx);
-    lv_obj_set_ext_click_area(box, 10);
-    lv_obj_set_style_bg_color(box, lv_palette_lighten(LV_PALETTE_GREY, 2), LV_STATE_PRESSED);
+/** Узел-шкала: дуга 270° (0..FLOW_GAUGE_MAX_W), иконка в центре (если задана), значение под дугой.
+ *  Контейнер 76×76 шире дуги, чтобы длинное значение («12.50 kW») не обрезалось. (arc_x, arc_y) — угол дуги. */
+static FlowGauge flowMakeGauge(lv_obj_t* parent, lv_coord_t arc_x, lv_coord_t arc_y,
+                               const lv_img_dsc_t* icon, lv_color_t icon_color, UiTabIndex tab_idx) {
+    lv_obj_t* cont = lv_obj_create(parent);
+    lv_obj_remove_style_all(cont);
+    lv_obj_set_size(cont, 76, 76);
+    lv_obj_set_pos(cont, arc_x - 5, arc_y);
+    lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(cont, 8, 0);
+    lv_obj_set_style_bg_color(cont, lv_palette_lighten(LV_PALETTE_GREY, 2), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(cont, LV_OPA_COVER, LV_STATE_PRESSED);
+
+    FlowGauge g;
+    g.arc = lv_arc_create(cont);
+    lv_obj_set_size(g.arc, FLOW_GAUGE_SIZE, FLOW_GAUGE_SIZE);
+    lv_obj_set_pos(g.arc, 5, 0);
+    lv_arc_set_rotation(g.arc, 135);
+    lv_arc_set_bg_angles(g.arc, 0, 270);
+    lv_arc_set_range(g.arc, 0, FLOW_GAUGE_MAX_W);
+    lv_arc_set_value(g.arc, 0);
+    lv_obj_remove_style(g.arc, NULL, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(g.arc, 0, 0);
+    lv_obj_set_style_arc_width(g.arc, 6, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(g.arc, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(g.arc, lv_palette_lighten(LV_PALETTE_GREY, 1), LV_PART_MAIN);
+
+    if (icon) {
+        lv_obj_t* img = lv_img_create(cont);
+        lv_img_set_src(img, icon);
+        lv_obj_set_style_img_recolor(img, icon_color, 0);
+        lv_obj_set_style_img_recolor_opa(img, LV_OPA_COVER, 0);
+        lv_obj_align(img, LV_ALIGN_TOP_MID, 0, FLOW_GAUGE_SIZE / 2 - 16);
+    }
+
+    // Значение в разрыве дуги снизу: концы дуги заканчиваются на ~58 px от её верха.
+    g.value = lv_label_create(cont);
+    lv_obj_set_width(g.value, 76);
+    lv_obj_set_pos(g.value, 0, 58);
+    lv_obj_set_style_text_align(g.value, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(g.value, &lv_font_montserrat_16, 0);
+    lv_label_set_text(g.value, "-- W");
+
+    flowMakeTapTarget(cont, tab_idx);
+    return g;
+}
+
+/** Обновить шкалу: дуга по модулю мощности (с ограничением шкалы), цвет заполнения, подпись. */
+static void flowSetGauge(FlowGauge& g, int32_t w, lv_color_t color) {
+    int32_t a = w < 0 ? -w : w;
+    lv_arc_set_value(g.arc, a > FLOW_GAUGE_MAX_W ? FLOW_GAUGE_MAX_W : a);
+    lv_obj_set_style_arc_color(g.arc, color, LV_PART_INDICATOR);
+    lv_label_set_text(g.value, flowFormatPower(w).c_str());
+}
+
+/** Мелкая подпись рядом со шкалой (напряжение сети, температура батареи). */
+static lv_obj_t* flowMakeNote(lv_obj_t* parent, lv_coord_t x, lv_coord_t y, lv_text_align_t align) {
+    lv_obj_t* label = lv_label_create(parent);
+    lv_obj_set_width(label, 80);
+    lv_obj_set_pos(label, x, y);
+    lv_obj_set_style_text_align(label, align, 0);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(label, lv_palette_main(LV_PALETTE_GREY), 0);
+    return label;
 }
 
 static void buildFlowTab(lv_obj_t* tab) {
@@ -259,61 +278,66 @@ static void buildFlowTab(lv_obj_t* tab) {
     lv_style_set_line_dash_gap(&style_flow_line, 3);
     lv_style_set_line_color(&style_flow_line, flowIdleColor());
 
-    // Линии первыми, чтобы узлы и стрелки рисовались поверх.
+    // Линии первыми, чтобы шкалы и стрелки рисовались поверх.
     flowMakeLine(tab, flow_pv, &style_flow_line);
     flowMakeLine(tab, flow_grid, &style_flow_line);
     flowMakeLine(tab, flow_batt, &style_flow_line);
     flowMakeLine(tab, flow_load, &style_flow_line);
-    flowMakeLine(tab, flow_home, &style_flow_line);
 
     lv_color_t icon_dark = lv_palette_darken(LV_PALETTE_GREY, 4);
-    flowMakeTapNode(flowMakeIconNode(tab, 8, 24, &flow_icon_pv, colorOrangeText()), UI_TAB_SOLAR);
-    flowMakeTapNode(flowMakeIconNode(tab, 262, 24, &flow_icon_grid, icon_dark), UI_TAB_GRID);
-    label_flow_soc = flowMakeNode(tab, 8, 135, "--%");
+    gauge_pv = flowMakeGauge(tab, 6, 24, &flow_icon_pv, colorOrangeText(), UI_TAB_SOLAR);
+    gauge_grid = flowMakeGauge(tab, 248, 24, &flow_icon_grid, icon_dark, UI_TAB_GRID);
+    gauge_load = flowMakeGauge(tab, 248, 112, &flow_icon_home, icon_dark, UI_TAB_GRID);
+
+    // Батарея: SOC над иконкой внутри дуги (как на панели Deye).
+    gauge_batt = flowMakeGauge(tab, 6, 112, NULL, icon_dark, UI_TAB_BATTERY);
+    lv_obj_t* batt_cont = lv_obj_get_parent(gauge_batt.arc);
+    label_flow_soc = lv_label_create(batt_cont);
     lv_obj_set_style_text_font(label_flow_soc, &lv_font_montserrat_16, 0);
-    flowMakeTapNode(lv_obj_get_parent(label_flow_soc), UI_TAB_BATTERY);
-    flowMakeTapNode(flowMakeIconNode(tab, 185, 142, &flow_icon_load, icon_dark), UI_TAB_GRID);
-    flowMakeTapNode(flowMakeIconNode(tab, 262, 142, &flow_icon_home, icon_dark), UI_TAB_GRID);
+    lv_label_set_text(label_flow_soc, "--%");
+    lv_obj_align(label_flow_soc, LV_ALIGN_TOP_MID, 0, 14);
+    lv_obj_t* batt_img = lv_img_create(batt_cont);
+    lv_img_set_src(batt_img, &flow_icon_battery);
+    lv_obj_set_style_img_recolor(batt_img, icon_dark, 0);
+    lv_obj_set_style_img_recolor_opa(batt_img, LV_OPA_COVER, 0);
+    lv_obj_align(batt_img, LV_ALIGN_TOP_MID, 0, 26);
+    // Новые дети добавлены после flowMakeTapTarget — передаём им нажатие вручную.
+    lv_obj_add_flag(label_flow_soc, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_flag(batt_img, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_clear_flag(batt_img, LV_OBJ_FLAG_CLICKABLE);
 
-    // Инвертор чуть крупнее остальных узлов.
-    lv_obj_t* box_inv = flowMakeIconNode(tab, 140, 85, &flow_icon_inverter, lv_palette_main(LV_PALETTE_BLUE));
-    lv_obj_set_size(box_inv, 40, 36);
-    lv_obj_center(lv_obj_get_child(box_inv, 0));
-    lv_obj_set_style_border_color(box_inv, lv_palette_main(LV_PALETTE_BLUE), 0);
-
-    label_flow_pv = flowMakeValue(tab, 8, 54, LV_TEXT_ALIGN_LEFT);
-    label_flow_grid = flowMakeValue(tab, 212, 54, LV_TEXT_ALIGN_RIGHT);
-    label_flow_grid_volts = flowMakeValue(tab, 212, 72, LV_TEXT_ALIGN_RIGHT);
-    lv_obj_set_style_text_font(label_flow_grid_volts, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(label_flow_grid_volts, lv_palette_main(LV_PALETTE_GREY), 0);
+    // Подписи с внутренней стороны шкал, не на линиях.
+    label_flow_grid_volts = flowMakeNote(tab, 164, 36, LV_TEXT_ALIGN_RIGHT);
     lv_label_set_text(label_flow_grid_volts, "-- V");
-    label_flow_batt = flowMakeValue(tab, 8, 165, LV_TEXT_ALIGN_LEFT);
-    // Температура батареи над её плашкой (ниже места нет — таббар).
-    label_flow_batt_temp = flowMakeValue(tab, 8, 115, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_width(label_flow_batt_temp, 80);
-    lv_obj_set_style_text_font(label_flow_batt_temp, &lv_font_montserrat_14, 0);
-    lv_label_set_text(label_flow_batt_temp, "-- °C");
-    label_flow_load = flowMakeValue(tab, 160, 172, LV_TEXT_ALIGN_CENTER);
-    label_flow_home = flowMakeValue(tab, 212, 172, LV_TEXT_ALIGN_RIGHT);
-    flowMakeTapTarget(label_flow_pv, UI_TAB_SOLAR);
-    flowMakeTapTarget(label_flow_grid, UI_TAB_GRID);
     flowMakeTapTarget(label_flow_grid_volts, UI_TAB_GRID);
-    flowMakeTapTarget(label_flow_batt, UI_TAB_BATTERY);
+    label_flow_batt_temp = flowMakeNote(tab, 76, 152, LV_TEXT_ALIGN_LEFT);
+    lv_label_set_text(label_flow_batt_temp, "-- °C");
     flowMakeTapTarget(label_flow_batt_temp, UI_TAB_BATTERY);
-    flowMakeTapTarget(label_flow_load, UI_TAB_GRID);
-    flowMakeTapTarget(label_flow_home, UI_TAB_GRID);
+
+    // Центр: кружок статуса инвертора (ON — данные свежие), обновляется в uiUpdateStatusBar().
+    flow_status_ring = lv_obj_create(tab);
+    lv_obj_set_size(flow_status_ring, 44, 44);
+    lv_obj_set_pos(flow_status_ring, 138, 83);
+    lv_obj_clear_flag(flow_status_ring, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_pad_all(flow_status_ring, 0, 0);
+    lv_obj_set_style_radius(flow_status_ring, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(flow_status_ring, 3, 0);
+    lv_obj_set_style_border_color(flow_status_ring, flowIdleColor(), 0);
+    flow_status_label = lv_label_create(flow_status_ring);
+    lv_obj_set_style_text_font(flow_status_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(flow_status_label, flowIdleColor(), 0);
+    lv_label_set_text(flow_status_label, "?");
+    lv_obj_center(flow_status_label);
 
     flowMakeDot(tab, flow_pv);
     flowMakeDot(tab, flow_grid);
     flowMakeDot(tab, flow_batt);
     flowMakeDot(tab, flow_load);
-    flowMakeDot(tab, flow_home);
 
-    flow_pv.arrow = flowMakeArrow(tab, 120, 95);
-    flow_grid.arrow = flowMakeArrow(tab, 200, 95);
-    flow_batt.arrow = flowMakeArrow(tab, 120, 111);
-    flow_load.arrow = flowMakeArrow(tab, 185, 132);
-    flow_home.arrow = flowMakeArrow(tab, 240, 111);
+    flow_pv.arrow = flowMakeArrow(tab, 124, 96);
+    flow_grid.arrow = flowMakeArrow(tab, 196, 96);
+    flow_batt.arrow = flowMakeArrow(tab, 124, 114);
+    flow_load.arrow = flowMakeArrow(tab, 196, 114);
 }
 
 // --- Callbacks ---
@@ -751,42 +775,50 @@ void uiUpdate() {
     else
         lv_obj_set_style_text_color(label_source_val, lv_palette_main(LV_PALETTE_GREY), 0);
 
-    // Flow: стрелки показывают направление потока относительно инвертора.
-    lv_label_set_text(label_flow_pv, flowFormatPower(pvTotal).c_str());
-    flowSetLink(flow_pv, pvTotal > 10 ? 1 : 0, LV_SYMBOL_RIGHT, colorOrangeText());
+    // Flow: дуги заполняются по мощности, стрелки показывают направление относительно центра.
+    lv_color_t idle = flowIdleColor();
+    const bool pvOn = pvTotal > 10;
+    flowSetGauge(gauge_pv, pvTotal, pvOn ? lv_palette_main(LV_PALETTE_ORANGE) : idle);
+    flowSetLink(flow_pv, pvOn ? 1 : 0, LV_SYMBOL_RIGHT, colorOrangeText());
 
-    lv_label_set_text(label_flow_grid, flowFormatPower(gridPwr).c_str());
     lv_label_set_text(label_flow_grid_volts, (String(gridV, 1) + " V").c_str());
-    if (gridPwr > 10)
+    if (gridPwr > 10) {
+        flowSetGauge(gauge_grid, gridPwr, lv_palette_main(LV_PALETTE_RED));
         flowSetLink(flow_grid, 1, LV_SYMBOL_LEFT, lv_palette_main(LV_PALETTE_RED));
-    else if (gridPwr < -10)
+    } else if (gridPwr < -10) {
+        flowSetGauge(gauge_grid, gridPwr, lv_palette_main(LV_PALETTE_GREEN));
         flowSetLink(flow_grid, -1, LV_SYMBOL_RIGHT, lv_palette_main(LV_PALETTE_GREEN));
-    else
-        flowSetLink(flow_grid, 0, "", lv_color_black());
+    } else {
+        flowSetGauge(gauge_grid, gridPwr, idle);
+        flowSetLink(flow_grid, 0, "", idle);
+    }
 
     lv_label_set_text(label_flow_soc, (String(soc) + "%").c_str());
     if (soc < 20) lv_obj_set_style_text_color(label_flow_soc, lv_palette_main(LV_PALETTE_RED), 0);
     else if (soc < 50) lv_obj_set_style_text_color(label_flow_soc, colorOrangeText(), 0);
     else lv_obj_set_style_text_color(label_flow_soc, lv_palette_main(LV_PALETTE_GREEN), 0);
-    lv_label_set_text(label_flow_batt, flowFormatPower(battPwr).c_str());
     lv_label_set_text(label_flow_batt_temp, (String(temp, 1) + " °C").c_str());
     if (temp < 5.0f || temp > 45.0f)
         lv_obj_set_style_text_color(label_flow_batt_temp, lv_palette_main(LV_PALETTE_RED), 0);
     else
         lv_obj_set_style_text_color(label_flow_batt_temp, lv_palette_main(LV_PALETTE_GREY), 0);
-    if (battPwr > 10)
+    if (battPwr > 10) {
+        flowSetGauge(gauge_batt, battPwr, lv_palette_main(LV_PALETTE_ORANGE));
         flowSetLink(flow_batt, 1, LV_SYMBOL_RIGHT, colorOrangeText());
-    else if (battPwr < -10)
+    } else if (battPwr < -10) {
+        flowSetGauge(gauge_batt, battPwr, lv_palette_main(LV_PALETTE_GREEN));
         flowSetLink(flow_batt, -1, LV_SYMBOL_LEFT, lv_palette_main(LV_PALETTE_GREEN));
-    else
-        flowSetLink(flow_batt, 0, "", lv_color_black());
+    } else {
+        flowSetGauge(gauge_batt, battPwr, idle);
+        flowSetLink(flow_batt, 0, "", idle);
+    }
 
-    lv_label_set_text(label_flow_load, flowFormatPower(loadPwr).c_str());
-    flowSetLink(flow_load, loadPwr > 10 ? 1 : 0, LV_SYMBOL_RIGHT, lv_palette_main(LV_PALETTE_BLUE));
-
-    // Home = внешний CT - внутренний; порог 20 W, т.к. CT даёт смещение ~9 W без нагрузки.
-    lv_label_set_text(label_flow_home, flowFormatPower(homePwr).c_str());
-    flowSetLink(flow_home, homePwr > 20 ? 1 : 0, LV_SYMBOL_RIGHT, lv_palette_main(LV_PALETTE_TEAL));
+    // Нагрузка как на панели Deye: UPS + нагрузка до инвертора (Home).
+    // Home учитывается от 20 W: внешний CT даёт смещение ~9 W без нагрузки.
+    uint32_t loadTotal = (uint32_t)loadPwr + (homePwr > 20 ? homePwr : 0);
+    const bool loadOn = loadTotal > 10;
+    flowSetGauge(gauge_load, loadTotal, loadOn ? lv_palette_main(LV_PALETTE_BLUE) : idle);
+    flowSetLink(flow_load, loadOn ? 1 : 0, LV_SYMBOL_RIGHT, lv_palette_main(LV_PALETTE_BLUE));
 
     lv_label_set_text(label_pv_total, (String(pvTotal) + " W").c_str());
     if (pvTotal > 10)
@@ -850,6 +882,19 @@ void uiUpdateStatusBar() {
         uint32_t ageS = (millis() - invLastOk) / 1000;
         if (ageS <= 60)      invPart = "INV";   // свежие данные
         else                 invPart = "INV!";  // давно не обновлялось
+    }
+
+    // Кружок статуса на вкладке Flow: ON — данные свежие, OFF — инвертор давно не отвечает.
+    if (invLastOk == 0) {
+        lv_label_set_text(flow_status_label, "?");
+        lv_obj_set_style_text_color(flow_status_label, flowIdleColor(), 0);
+        lv_obj_set_style_border_color(flow_status_ring, flowIdleColor(), 0);
+    } else {
+        bool fresh = invPart == "INV";
+        lv_color_t c = lv_palette_main(fresh ? LV_PALETTE_GREEN : LV_PALETTE_RED);
+        lv_label_set_text(flow_status_label, fresh ? "ON" : "OFF");
+        lv_obj_set_style_text_color(flow_status_label, c, 0);
+        lv_obj_set_style_border_color(flow_status_ring, c, 0);
     }
 
     // Строка: батарея, мощность, дата+время, статус инвертора, уровень Wi‑Fi.

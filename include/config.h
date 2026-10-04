@@ -26,6 +26,9 @@
 #define DEFAULT_TIMEZONE_HOUR 4
 #define DEFAULT_DST_ENABLED   false
 
+// Предел шкал-дуг на вкладке Flow, W (как 5.0 kW на панели Deye)
+#define FLOW_GAUGE_MAX_W      5000
+
     // --- КАРТА РЕГИСТРОВ ---
     const uint16_t REG_BLOCK_START = 103;
     const uint16_t REG_BLOCK_LEN   = 89; 

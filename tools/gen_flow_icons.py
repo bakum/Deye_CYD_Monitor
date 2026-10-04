@@ -1,5 +1,5 @@
 # Генератор иконок вкладки Flow -> src/flow_icons.c
-# Иконки рисуются на холсте 96x96 и уменьшаются до 24x24 (сглаживание).
+# Иконки рисуются на холсте 96x96 и уменьшаются до 32x32 (сглаживание).
 # Формат LV_IMG_CF_ALPHA_8BIT: только прозрачность, цвет задаётся в коде через img_recolor.
 # Запуск: python tools/gen_flow_icons.py [папка_для_превью]
 import math
@@ -9,8 +9,8 @@ import sys
 from PIL import Image, ImageDraw
 
 BIG = 96
-SIZE = 24
-W = 7  # толщина линий на большом холсте (~1.75 px на экране)
+SIZE = 32
+W = 7  # толщина линий на большом холсте (~2.3 px на экране)
 
 
 def canvas():
@@ -49,7 +49,7 @@ def icon_pv():
 def icon_grid():
     img, d = canvas()
     # Опора ЛЭП: трапеция с плоским верхом, две траверсы, крест внизу.
-    # Без острой вершины: иначе на 24 px с крестом получается звезда.
+    # Без острой вершины: иначе на мелком размере с крестом получается звезда.
     line(d, [(22, 92), (40, 6), (56, 6), (74, 92)])
     line(d, [(10, 26), (86, 26)])
     line(d, [(18, 48), (78, 48)])
@@ -58,29 +58,12 @@ def icon_grid():
     return img
 
 
-def icon_inverter():
+def icon_battery():
     img, d = canvas()
-    d.rounded_rectangle((14, 4, 82, 92), radius=12, outline=255, width=W)
-    # Синусоида в центре
-    pts = []
-    for i in range(41):
-        x = 26 + i * 44 / 40
-        y = 56 - 12 * math.sin(i / 40 * 2 * math.pi)
-        pts.append((x, y))
-    line(d, pts, 6)
-    # Окошко дисплея сверху
-    d.rounded_rectangle((30, 16, 66, 30), radius=4, outline=255, width=5)
-    return img
-
-
-def icon_load():
-    img, d = canvas()
-    # Вилка: два штыря, корпус, провод
-    line(d, [(36, 6), (36, 26)], 8)
-    line(d, [(60, 6), (60, 26)], 8)
-    d.rounded_rectangle((20, 26, 76, 58), radius=8, fill=255)
-    d.polygon([(26, 56), (70, 56), (56, 72), (40, 72)], fill=255)
-    line(d, [(48, 72), (48, 80), (40, 92)], W)
+    # Батарея лёжа: корпус, клемма справа, молния внутри
+    d.rounded_rectangle((4, 26, 82, 70), radius=8, outline=255, width=W)
+    d.rectangle((84, 38, 92, 58), fill=255)
+    d.polygon([(48, 32), (28, 52), (42, 52), (36, 64), (58, 44), (44, 44), (50, 32)], fill=255)
     return img
 
 
@@ -96,8 +79,7 @@ def icon_home():
 ICONS = [
     ("flow_icon_pv", icon_pv),
     ("flow_icon_grid", icon_grid),
-    ("flow_icon_inverter", icon_inverter),
-    ("flow_icon_load", icon_load),
+    ("flow_icon_battery", icon_battery),
     ("flow_icon_home", icon_home),
 ]
 
@@ -109,7 +91,7 @@ def main():
 
     parts = [
         "// Сгенерировано tools/gen_flow_icons.py, руками не править.\n"
-        "// Иконки вкладки Flow, 24x24, LV_IMG_CF_ALPHA_8BIT (цвет через img_recolor).\n"
+        "// Иконки вкладки Flow, 32x32, LV_IMG_CF_ALPHA_8BIT (цвет через img_recolor).\n"
         "#include <lvgl.h>\n"
     ]
     previews = []
@@ -134,7 +116,7 @@ def main():
     print("written", out)
 
     if preview_dir:
-        # Превью: как на экране (24 px) и увеличенное x8, тёмным по белому
+        # Превью: как на экране (32 px) и увеличенное x8, тёмным по белому
         sheet = Image.new("L", (len(previews) * (SIZE * 8 + 16), SIZE * 8 + SIZE + 24), 255)
         for i, im in enumerate(previews):
             x = i * (SIZE * 8 + 16)
