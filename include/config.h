@@ -37,6 +37,8 @@
     // 122 регистра — в пределах 125 на запрос Modbus, ответ ~275 байт в буфере 512.
     const uint16_t REG_BLOCK_START = 70;
     const uint16_t REG_BLOCK_LEN   = 122;
+    const uint16_t ADDR_DAY_BATT_CHARGE    = 70;   // заряд батареи за сутки, /10 kWh
+    const uint16_t ADDR_DAY_BATT_DISCHARGE = 71;   // разряд батареи за сутки, /10 kWh
     const uint16_t ADDR_DAY_GRID_BUY    = 76;   // куплено из сети за сутки, /10 kWh
     const uint16_t ADDR_DAY_LOAD_ENERGY = 84;   // потребление нагрузки за сутки, /10 kWh
 

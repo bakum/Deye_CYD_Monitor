@@ -56,6 +56,7 @@ static FlowGauge gauge_batt;
 static FlowGauge gauge_load;
 static lv_obj_t* label_flow_soc;
 static lv_obj_t* label_flow_batt_temp;
+static lv_obj_t* label_flow_batt_day;
 static lv_obj_t* label_flow_grid_volts;
 static lv_obj_t* label_flow_pv_day;
 static lv_obj_t* label_flow_grid_day;
@@ -354,7 +355,14 @@ static void buildFlowTab(lv_obj_t* tab) {
     label_flow_pv_day = flowMakeNote(tab, 76, 33, LV_TEXT_ALIGN_LEFT);
     lv_label_set_text(label_flow_pv_day, "-- kWh");
     flowMakeTapTarget(label_flow_pv_day, UI_TAB_SOLAR);
-    label_flow_batt_temp = flowMakeNote(tab, 76, 156, LV_TEXT_ALIGN_LEFT);
+    // Батарея: у линии заряд/разряд за сутки (как kWh дома справа), температура строкой ниже.
+    label_flow_batt_day = flowMakeNote(tab, 76, 156, LV_TEXT_ALIGN_LEFT);
+    // Ширина по тексту и без единиц: в 110 px «kWh» переносился на строку температуры.
+    lv_obj_set_width(label_flow_batt_day, LV_SIZE_CONTENT);
+    lv_label_set_text(label_flow_batt_day, "--");
+    flowMakeTapTarget(label_flow_batt_day, UI_TAB_BATTERY);
+    label_flow_batt_temp = flowMakeNote(tab, 76, 172, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_width(label_flow_batt_temp, 60);   // не залезать на шестерёнку (x 140..180)
     lv_label_set_text(label_flow_batt_temp, "-- °C");
     flowMakeTapTarget(label_flow_batt_temp, UI_TAB_BATTERY);
 
@@ -904,6 +912,9 @@ void uiUpdate() {
     else if (soc < 50) lv_obj_set_style_text_color(label_flow_soc, colorOrangeText(), 0);
     else lv_obj_set_style_text_color(label_flow_soc, lv_palette_main(LV_PALETTE_GREEN), 0);
     lv_label_set_text(label_flow_batt_temp, (String(temp, 1) + " °C").c_str());
+    // ↑ заряжено, ↓ разряжено за сутки, kWh
+    lv_label_set_text(label_flow_batt_day, (String(LV_SYMBOL_UP) + String(inverterGetDayBattCharge(), 1) +
+        " " LV_SYMBOL_DOWN + String(inverterGetDayBattDischarge(), 1)).c_str());
     if (temp < 5.0f || temp > 45.0f)
         lv_obj_set_style_text_color(label_flow_batt_temp, lv_palette_main(LV_PALETTE_RED), 0);
     else

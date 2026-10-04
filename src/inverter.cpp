@@ -32,6 +32,8 @@ static uint16_t pv2Power = 0;
 static float dayPvEnergy = 0.0f;
 static float dayGridBuy = 0.0f;
 static float dayLoadEnergy = 0.0f;
+static float dayBattCharge = 0.0f;
+static float dayBattDischarge = 0.0f;
 
 static uint8_t calculateChecksum(uint8_t* buf, int len) {
     uint8_t checksum = 0;
@@ -75,7 +77,7 @@ struct InverterSample {
     uint16_t pv1Power;
     float pv2Volts, pv2Current;
     uint16_t pv2Power;
-    float dayPvEnergy, dayGridBuy, dayLoadEnergy;
+    float dayPvEnergy, dayGridBuy, dayLoadEnergy, dayBattCharge, dayBattDischarge;
 };
 
 /** Проверка правдоподобия. Возвращает nullptr, если всё в норме, иначе — что не так. */
@@ -95,6 +97,7 @@ static const char* checkPlausibility(const InverterSample& s) {
     if (s.dayPvEnergy > 200.0f) return "day PV energy";
     if (s.dayGridBuy > 500.0f) return "day grid buy";
     if (s.dayLoadEnergy > 500.0f) return "day load energy";
+    if (s.dayBattCharge > 500.0f || s.dayBattDischarge > 500.0f) return "day battery energy";
 
     // Закон Ома для батареи: |V*I| должно быть близко к |P| (по модулю — чтобы не зависеть от знаков).
     float pCalc = fabsf(s.battVolts * s.battCurrent);
@@ -280,13 +283,16 @@ void inverterHandleResponse() {
     s.dayPvEnergy = getReg(buffer, dataOffset, ADDR_DAY_PV_ENERGY) / 10.0f;
     s.dayGridBuy = getReg(buffer, dataOffset, ADDR_DAY_GRID_BUY) / 10.0f;
     s.dayLoadEnergy = getReg(buffer, dataOffset, ADDR_DAY_LOAD_ENERGY) / 10.0f;
+    s.dayBattCharge = getReg(buffer, dataOffset, ADDR_DAY_BATT_CHARGE) / 10.0f;
+    s.dayBattDischarge = getReg(buffer, dataOffset, ADDR_DAY_BATT_DISCHARGE) / 10.0f;
 
     const char* implausible = checkPlausibility(s);
     if (implausible) {
-        Serial.printf("[%lu] Implausible: SOC=%u V=%.2f A=%.2f P=%dW T=%.1f Grid=%dW/%.1fV CT=%dW Load=%uW PV1=%.1fV/%.1fA/%uW PV2=%.1fV/%.1fA/%uW Day=%.1f Buy=%.1f LoadDay=%.1f\n",
+        Serial.printf("[%lu] Implausible: SOC=%u V=%.2f A=%.2f P=%dW T=%.1f Grid=%dW/%.1fV CT=%dW Load=%uW PV1=%.1fV/%.1fA/%uW PV2=%.1fV/%.1fA/%uW Day=%.1f Buy=%.1f LoadDay=%.1f BatChg=%.1f BatDis=%.1f\n",
             (unsigned long)millis(), s.battSOC, s.battVolts, s.battCurrent, s.battPower, s.battTemp,
             s.gridPower, s.gridVolts, s.extCtPower, s.loadPower, s.pv1Volts, s.pv1Current, s.pv1Power,
-            s.pv2Volts, s.pv2Current, s.pv2Power, s.dayPvEnergy, s.dayGridBuy, s.dayLoadEnergy);
+            s.pv2Volts, s.pv2Current, s.pv2Power, s.dayPvEnergy, s.dayGridBuy, s.dayLoadEnergy,
+            s.dayBattCharge, s.dayBattDischarge);
         dropFrame(implausible);
         return;
     }
@@ -309,12 +315,14 @@ void inverterHandleResponse() {
     dayPvEnergy = s.dayPvEnergy;
     dayGridBuy = s.dayGridBuy;
     dayLoadEnergy = s.dayLoadEnergy;
+    dayBattCharge = s.dayBattCharge;
+    dayBattDischarge = s.dayBattDischarge;
 
     lastSuccessTimestamp = millis();
-    Serial.printf("[%lu] Data: SOC=%d%%, V=%.2f, A=%.2f, P=%dW, T=%.1fC, Grid=%dW, CT=%dW, Load=%dW, PV=%luW (PV1=%uW PV2=%uW), Day=%.1fkWh, Buy=%.1fkWh, LoadDay=%.1fkWh\n",
+    Serial.printf("[%lu] Data: SOC=%d%%, V=%.2f, A=%.2f, P=%dW, T=%.1fC, Grid=%dW, CT=%dW, Load=%dW, PV=%luW (PV1=%uW PV2=%uW), Day=%.1fkWh, Buy=%.1fkWh, LoadDay=%.1fkWh, BatChg=%.1fkWh, BatDis=%.1fkWh\n",
         (unsigned long)millis(), battSOC, battVolts, battCurrent, battPower, battTemp, gridPower, extCtPower, loadPower,
         (unsigned long)((uint32_t)pv1Power + (uint32_t)pv2Power), pv1Power, pv2Power, dayPvEnergy,
-        dayGridBuy, dayLoadEnergy);
+        dayGridBuy, dayLoadEnergy, dayBattCharge, dayBattDischarge);
 
     isRequestSent = false;
     if (s_showLoader) s_showLoader(false);
@@ -355,3 +363,5 @@ uint32_t inverterGetPvTotalPower() { return (uint32_t)pv1Power + (uint32_t)pv2Po
 float inverterGetDayPvEnergy() { return dayPvEnergy; }
 float inverterGetDayGridBuy() { return dayGridBuy; }
 float inverterGetDayLoadEnergy() { return dayLoadEnergy; }
+float inverterGetDayBattCharge() { return dayBattCharge; }
+float inverterGetDayBattDischarge() { return dayBattDischarge; }

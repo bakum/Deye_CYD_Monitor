@@ -53,5 +53,8 @@ float inverterGetDayPvEnergy();
 float inverterGetDayGridBuy();
 /** Потребление нагрузки за сутки, kWh (регистр 84). */
 float inverterGetDayLoadEnergy();
+/** Заряд / разряд батареи за сутки, kWh (регистры 70 / 71). */
+float inverterGetDayBattCharge();
+float inverterGetDayBattDischarge();
 
 #endif
