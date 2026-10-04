@@ -58,6 +58,8 @@ static lv_obj_t* label_flow_soc;
 static lv_obj_t* label_flow_batt_temp;
 static lv_obj_t* label_flow_grid_volts;
 static lv_obj_t* label_flow_pv_day;
+static lv_obj_t* label_flow_grid_day;
+static lv_obj_t* label_flow_load_day;
 static lv_obj_t* flow_status_ring;
 static lv_obj_t* flow_status_label;
 
@@ -337,13 +339,21 @@ static void buildFlowTab(lv_obj_t* tab) {
     lv_obj_clear_flag(batt_img, LV_OBJ_FLAG_CLICKABLE);
 
     // Подписи с внутренней стороны шкал, не на линиях.
-    label_flow_grid_volts = flowMakeNote(tab, 164, 36, LV_TEXT_ALIGN_RIGHT);
+    // Суточные kWh стоят симметрично по углам: PV и сеть над линиями, нагрузка под линией.
+    // Отступ от линий 5+ px: стрелка у конца линии (белый фон 16×16) не должна закрывать текст.
+    label_flow_grid_volts = flowMakeNote(tab, 164, 15, LV_TEXT_ALIGN_RIGHT);
     lv_label_set_text(label_flow_grid_volts, "-- V");
     flowMakeTapTarget(label_flow_grid_volts, UI_TAB_GRID);
-    label_flow_pv_day = flowMakeNote(tab, 76, 36, LV_TEXT_ALIGN_LEFT);
+    label_flow_grid_day = flowMakeNote(tab, 164, 33, LV_TEXT_ALIGN_RIGHT);
+    lv_label_set_text(label_flow_grid_day, "-- kWh");
+    flowMakeTapTarget(label_flow_grid_day, UI_TAB_GRID);
+    label_flow_load_day = flowMakeNote(tab, 164, 156, LV_TEXT_ALIGN_RIGHT);
+    lv_label_set_text(label_flow_load_day, "-- kWh");
+    flowMakeTapTarget(label_flow_load_day, UI_TAB_GRID);
+    label_flow_pv_day = flowMakeNote(tab, 76, 33, LV_TEXT_ALIGN_LEFT);
     lv_label_set_text(label_flow_pv_day, "-- kWh");
     flowMakeTapTarget(label_flow_pv_day, UI_TAB_SOLAR);
-    label_flow_batt_temp = flowMakeNote(tab, 76, 152, LV_TEXT_ALIGN_LEFT);
+    label_flow_batt_temp = flowMakeNote(tab, 76, 156, LV_TEXT_ALIGN_LEFT);
     lv_label_set_text(label_flow_batt_temp, "-- °C");
     flowMakeTapTarget(label_flow_batt_temp, UI_TAB_BATTERY);
 
@@ -845,6 +855,7 @@ void uiUpdate() {
     lv_label_set_text(label_flow_pv_day, (String(pvDay, 1) + " kWh").c_str());
 
     lv_label_set_text(label_flow_grid_volts, (String(gridV, 1) + " V").c_str());
+    lv_label_set_text(label_flow_grid_day, (String(inverterGetDayGridBuy(), 1) + " kWh").c_str());
     if (gridPwr > 10) {
         flowSetGauge(gauge_grid, gridPwr, lv_palette_main(LV_PALETTE_RED));
         flowSetLink(flow_grid, 1, LV_SYMBOL_LEFT, lv_palette_main(LV_PALETTE_RED));
@@ -881,6 +892,7 @@ void uiUpdate() {
     uint32_t loadTotal = (uint32_t)loadPwr + (homePwr > 20 ? homePwr : 0);
     const bool loadOn = loadTotal > 10;
     flowSetGauge(gauge_load, loadTotal, loadOn ? lv_palette_main(LV_PALETTE_BLUE) : idle);
+    lv_label_set_text(label_flow_load_day, (String(inverterGetDayLoadEnergy(), 1) + " kWh").c_str());
     flowSetLink(flow_load, loadOn ? 1 : 0, LV_SYMBOL_RIGHT, lv_palette_main(LV_PALETTE_BLUE));
 
     lv_label_set_text(label_pv_total, (String(pvTotal) + " W").c_str());

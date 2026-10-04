@@ -33,8 +33,12 @@
 #define INVERTER_POWER_MAX_W     50000
 
     // --- КАРТА РЕГИСТРОВ ---
-    const uint16_t REG_BLOCK_START = 103;
-    const uint16_t REG_BLOCK_LEN   = 89; 
+    // Блок 70..191: с 70 начинаются суточные счётчики (заряд батареи, сеть, нагрузка).
+    // 122 регистра — в пределах 125 на запрос Modbus, ответ ~275 байт в буфере 512.
+    const uint16_t REG_BLOCK_START = 70;
+    const uint16_t REG_BLOCK_LEN   = 122;
+    const uint16_t ADDR_DAY_GRID_BUY    = 76;   // куплено из сети за сутки, /10 kWh
+    const uint16_t ADDR_DAY_LOAD_ENERGY = 84;   // потребление нагрузки за сутки, /10 kWh
 
     const uint16_t ADDR_DAY_PV_ENERGY   = 108;
     const uint16_t ADDR_PV1_VOLTAGE     = 109;

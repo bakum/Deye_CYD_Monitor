@@ -49,5 +49,9 @@ float inverterGetPv2Current();
 uint16_t inverterGetPv2Power();
 uint32_t inverterGetPvTotalPower();
 float inverterGetDayPvEnergy();
+/** Куплено из сети за сутки, kWh (регистр 76). */
+float inverterGetDayGridBuy();
+/** Потребление нагрузки за сутки, kWh (регистр 84). */
+float inverterGetDayLoadEnergy();
 
 #endif
