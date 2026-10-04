@@ -111,6 +111,9 @@ static FlowLink flow_batt = {flow_pts_batt, 4};
 static FlowLink flow_load = {flow_pts_load, 4};
 
 static const uint32_t FLOW_DOT_MS_PER_PX = 20;  // скорость точки ~50 px/s
+// Импорт из сети до 30 W — запас регулирования Deye (обычно 18–22 W), не считаем потоком:
+// линия серая, без точки. Экспорт показывается от 10 W — это реальные всплески.
+static const int16_t FLOW_GRID_IMPORT_IDLE_W = 30;
 
 /** Цвет неактивной линии: обычный серый, светлее выцветает на CYD. */
 static lv_color_t flowIdleColor() {
@@ -913,7 +916,7 @@ void uiUpdate() {
         lv_obj_set_style_arc_color(flow_mix_arc, flowIdleColor(), LV_PART_MAIN);
         lv_label_set_text(label_flow_mix, "");
     }
-    if (gridPwr > 10) {
+    if (gridPwr > FLOW_GRID_IMPORT_IDLE_W) {
         flowSetGauge(gauge_grid, gridPwr, lv_palette_main(LV_PALETTE_RED));
         flowSetLink(flow_grid, 1, LV_SYMBOL_LEFT, lv_palette_main(LV_PALETTE_RED));
     } else if (gridPwr < -10) {
