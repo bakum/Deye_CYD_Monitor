@@ -38,7 +38,8 @@ void setup() {
     backlightSet(settingsGetBrightness());
 
     uiBuild();
-    uiSetStatusText("WiFi: connecting... (or connect to Deye_Monitor_ESP32_IoT)");
+    // Коротко: строка статуса ~266 px, имя точки доступа должно влезть целиком.
+    uiSetStatusText("WiFi AP: Deye_Monitor_ESP32_IoT");
     for (int i = 0; i < 20; i++) { lv_timer_handler(); delay(50); }
 
     inverterSetCallbacks(uiShowLoader, uiUpdate);

@@ -36,13 +36,21 @@ static lv_obj_t* label_pv2_amps;
 static lv_obj_t* label_pv2_watts;
 static lv_obj_t* arc_loader;
 static lv_obj_t* btn_back;
+static lv_obj_t* btn_settings;
+// Строка статуса от x=5 до индикатора опроса (x=274) с запасом.
+static const lv_coord_t STATUS_TEXT_MAX_W = 266;
 
-/** Кнопка «‹» видна на всех вкладках, кроме Flow. */
+/** Кнопка «‹» видна на всех вкладках, кроме Flow; шестерёнка — на всех, кроме Settings. */
 static void uiUpdateBackButton() {
-    if (lv_tabview_get_tab_act(tabview) == UI_TAB_FLOW)
+    uint16_t act = lv_tabview_get_tab_act(tabview);
+    if (act == UI_TAB_FLOW)
         lv_obj_add_flag(btn_back, LV_OBJ_FLAG_HIDDEN);
     else
         lv_obj_clear_flag(btn_back, LV_OBJ_FLAG_HIDDEN);
+    if (act == UI_TAB_SETTINGS)
+        lv_obj_add_flag(btn_settings, LV_OBJ_FLAG_HIDDEN);
+    else
+        lv_obj_clear_flag(btn_settings, LV_OBJ_FLAG_HIDDEN);
 }
 // Вкладка Flow: схема потоков энергии в стиле панели Deye
 /** Шкала-дуга узла: заполняется пропорционально мощности, под ней подпись значения. */
@@ -415,18 +423,6 @@ static void buildFlowTab(lv_obj_t* tab) {
     lv_label_set_text(flow_status_label, "?");
     lv_obj_center(flow_status_label);
 
-    // Шестерёнка под кружком статуса: вход в Settings (кроме долгого BOOT).
-    lv_obj_t* gear = lv_label_create(tab);
-    lv_obj_set_size(gear, 40, 28);
-    lv_obj_set_pos(gear, 140, 182);
-    lv_obj_set_style_text_align(gear, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(gear, &lv_font_montserrat_22, 0);
-    lv_obj_set_style_text_color(gear, flowIdleColor(), 0);
-    lv_obj_set_style_text_color(gear, lv_palette_darken(LV_PALETTE_GREY, 3), LV_STATE_PRESSED);
-    lv_label_set_text(gear, LV_SYMBOL_SETTINGS);
-    lv_obj_set_ext_click_area(gear, 10);
-    flowMakeTapTarget(gear, UI_TAB_SETTINGS);
-
     flowMakeDot(tab, flow_pv);
     flowMakeDot(tab, flow_grid);
     flowMakeDot(tab, flow_batt);
@@ -760,17 +756,33 @@ void uiBuild() {
     lv_label_set_text(label_pv2_amps, "-- A");
     lv_obj_align(label_pv2_amps, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
 
-    // Top layer: loader + status
+    // Top layer: статус слева, затем индикатор опроса и шестерёнка в правом углу.
     lv_obj_t* top_layer = lv_layer_top();
     arc_loader = lv_spinner_create(top_layer, 1000, 60);
-    lv_obj_set_size(arc_loader, 20, 20);
-    lv_obj_align(arc_loader, LV_ALIGN_TOP_RIGHT, -5, 5);
+    lv_obj_set_size(arc_loader, 16, 16);
+    lv_obj_align(arc_loader, LV_ALIGN_TOP_RIGHT, -30, 6);
     lv_obj_add_flag(arc_loader, LV_OBJ_FLAG_HIDDEN);
 
+    // Ширина по тексту, без переноса: длинный SSID укорачивает uiUpdateStatusBar
+    // (LONG_DOT переносит по словам и прятал SSID целиком).
     label_status = lv_label_create(top_layer);
-    lv_label_set_text(label_status, "Init...");
     lv_obj_set_style_text_font(label_status, &lv_font_montserrat_14, 0);
+    lv_label_set_recolor(label_status, true);  // цвет значка Wi‑Fi по сигналу
+    lv_label_set_text(label_status, "Init...");
     lv_obj_align(label_status, LV_ALIGN_TOP_LEFT, 5, 5);
+
+    // Шестерёнка: вход в Settings (кроме долгого BOOT).
+    btn_settings = lv_label_create(top_layer);
+    lv_obj_set_size(btn_settings, 24, 24);
+    lv_obj_align(btn_settings, LV_ALIGN_TOP_RIGHT, -2, 2);
+    lv_obj_set_style_text_align(btn_settings, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(btn_settings, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_color(btn_settings, flowIdleColor(), 0);
+    lv_obj_set_style_text_color(btn_settings, lv_palette_darken(LV_PALETTE_GREY, 3), LV_STATE_PRESSED);
+    lv_label_set_text(btn_settings, LV_SYMBOL_SETTINGS);
+    lv_obj_set_ext_click_area(btn_settings, 8);
+    lv_obj_add_flag(btn_settings, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(btn_settings, [](lv_event_t* e) { uiSetTab(UI_TAB_SETTINGS); }, LV_EVENT_CLICKED, NULL);
 
     // Кнопка возврата на Flow: таббар скрыт, вкладки открываются тапом по узлам схемы.
     btn_back = lv_btn_create(top_layer);
@@ -975,6 +987,29 @@ void uiUpdate() {
     lv_label_set_text(label_pv2_amps, (String(pv2A, 1) + " A").c_str());
 }
 
+/** Ширина строки статуса в px (команды recolor не считаются). */
+static lv_coord_t statusTextWidth(const String& s) {
+    return lv_txt_get_width(s.c_str(), s.length(), &lv_font_montserrat_14, 0, LV_TEXT_FLAG_RECOLOR);
+}
+
+/** Хвост строки статуса (SSID), укороченный до «..», чтобы строка влезла в STATUS_TEXT_MAX_W.
+ *  «#» экранируется после обрезки, чтобы не разрезать пару «##». Символа «…» в шрифте нет. */
+static String statusFitTail(const String& head, String tail) {
+    bool cut = false;
+    while (tail.length() > 0) {
+        String t = tail;
+        t.replace("#", "##");  // «#» в recolor — команда цвета, «##» — сам символ
+        if (cut) t += "..";
+        if (statusTextWidth(head + " " + t) <= STATUS_TEXT_MAX_W) return t;
+        // Убрать последний символ UTF-8 целиком.
+        int n = tail.length() - 1;
+        while (n > 0 && ((uint8_t)tail[n] & 0xC0) == 0x80) n--;
+        tail.remove(n);
+        cut = true;
+    }
+    return "..";
+}
+
 void uiUpdateStatusBar() {
     uint16_t soc = inverterGetBattSOC();
     int16_t battPwr = inverterGetBattPower();
@@ -998,23 +1033,21 @@ void uiUpdateStatusBar() {
         if (millis() - lastTimeErr > 5000) { lastTimeErr = millis(); Serial.println("Time sync failed yet..."); }
     }
 
-    const char* wifi_display;
-    String ssidPart = "";
+    // Значок Wi‑Fi красится по уровню сигнала (recolor в label_status):
+    // зелёный > -60 dBm, оранжевый до -75 dBm, красный слабее или нет связи.
+    String ssid;
+    lv_color_t wifiColor = lv_palette_main(LV_PALETTE_RED);
     if (WiFi.status() != WL_CONNECTED) {
-        wifi_display = "No WiFi";
+        ssid = "No WiFi";
     } else {
         int rssi = WiFi.RSSI();
-        if (rssi > -60) wifi_display = "IIII";
-        else if (rssi > -70) wifi_display = "III";
-        else if (rssi > -80) wifi_display = "II";
-        else wifi_display = "I";
-        String ssid = WiFi.SSID();
-        if (ssid.length() > 0) {
-            const int SSID_MAX_LEN = 12;
-            if (ssid.length() > SSID_MAX_LEN) ssid = ssid.substring(0, SSID_MAX_LEN - 1) + "…";
-            ssidPart = " " + ssid;
-        }
+        if (rssi > -60) wifiColor = lv_palette_main(LV_PALETTE_GREEN);
+        else if (rssi > -75) wifiColor = colorOrangeText();
+        ssid = WiFi.SSID();
     }
+    char wifiIcon[24];
+    snprintf(wifiIcon, sizeof(wifiIcon), "#%06lX %s#",
+             (unsigned long)(lv_color_to32(wifiColor) & 0xFFFFFF), LV_SYMBOL_WIFI);
     uint32_t invLastOk = inverterGetLastSuccessTimestamp();
     String invPart;
     if (invLastOk == 0) {
@@ -1036,10 +1069,10 @@ void uiUpdateStatusBar() {
         lv_obj_set_style_text_color(flow_status_label, lv_palette_main(fresh ? LV_PALETTE_GREEN : LV_PALETTE_RED), 0);
     }
 
-    // Строка: батарея, мощность, дата+время, статус инвертора, уровень Wi‑Fi.
+    // Строка: батарея, мощность, дата+время, статус инвертора, сеть Wi‑Fi.
     String statusStr = String(bat_symbol) + " " + String(soc) + "% " + String(pwr_symbol) + "  " +
-                      String(timeStr) + "  " + invPart + "  " +
-                      String(LV_SYMBOL_WIFI) + ssidPart + " " + String(wifi_display);
+                      String(timeStr) + "  " + invPart + "  " + String(wifiIcon);
+    if (ssid.length() > 0) statusStr += " " + statusFitTail(statusStr, ssid);
     lv_label_set_text(label_status, statusStr.c_str());
 }
 
