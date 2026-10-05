@@ -114,6 +114,9 @@ static const uint32_t FLOW_DOT_MS_PER_PX = 20;  // скорость точки ~
 // Импорт из сети до 30 W — запас регулирования Deye (обычно 18–22 W), не считаем потоком:
 // линия серая, без точки. Экспорт показывается от 10 W — это реальные всплески.
 static const int16_t FLOW_GRID_IMPORT_IDLE_W = 30;
+// Разряд батареи до 50 W — собственное потребление в покое, не считаем потоком:
+// линия серая, без точки. Заряд показывается от 10 W.
+static const int16_t FLOW_BATT_DISCHARGE_IDLE_W = 50;
 
 /** Цвет неактивной линии: обычный серый, светлее выцветает на CYD. */
 static lv_color_t flowIdleColor() {
@@ -939,7 +942,7 @@ void uiUpdate() {
         lv_obj_set_style_text_color(label_flow_batt_temp, lv_palette_main(LV_PALETTE_RED), 0);
     else
         lv_obj_set_style_text_color(label_flow_batt_temp, lv_palette_main(LV_PALETTE_GREY), 0);
-    if (battPwr > 10) {
+    if (battPwr > FLOW_BATT_DISCHARGE_IDLE_W) {
         flowSetGauge(gauge_batt, battPwr, colorOrangeArc());
         flowSetLink(flow_batt, 1, LV_SYMBOL_RIGHT, colorOrangeText());
     } else if (battPwr < -10) {
