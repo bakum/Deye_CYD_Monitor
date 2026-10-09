@@ -57,6 +57,7 @@ static void uiUpdateBackButton() {
 struct FlowGauge {
     lv_obj_t* arc;
     lv_obj_t* value;
+    lv_obj_t* icon;    // NULL, если иконка не задана
 };
 static FlowGauge gauge_pv;
 static FlowGauge gauge_grid;
@@ -73,6 +74,7 @@ static lv_obj_t* flow_mix_arc;        // кольцо в центре: фон «
 static lv_obj_t* flow_mix_arc_pv;     // поверх: заполнение PV
 static lv_obj_t* label_flow_mix;      // «90% own» под кольцом
 static lv_obj_t* flow_status_label;   // ON/OFF внутри кольца
+static lv_obj_t* flow_grid_warn;      // ⚠ на опоре, когда внешней сети нет
 
 // Иконки вкладки Flow 32×32 (src/flow_icons.c, генерируются tools/gen_flow_icons.py)
 LV_IMG_DECLARE(flow_icon_pv);
@@ -125,6 +127,8 @@ static const int16_t FLOW_GRID_IMPORT_IDLE_W = 30;
 // Разряд батареи до 50 W — собственное потребление в покое, не считаем потоком:
 // линия серая, без точки. Заряд показывается от 10 W.
 static const int16_t FLOW_BATT_DISCHARGE_IDLE_W = 50;
+// Напряжение сети ниже 10 V — внешней сети нет: красная опора с ⚠ и «No grid».
+static const float FLOW_GRID_OFF_V = 10.0f;
 
 /** Цвет неактивной линии: обычный серый, светлее выцветает на CYD. */
 static lv_color_t flowIdleColor() {
@@ -272,12 +276,13 @@ static FlowGauge flowMakeGauge(lv_obj_t* parent, lv_coord_t arc_x, lv_coord_t ar
     lv_obj_set_style_arc_width(g.arc, 6, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(g.arc, lv_palette_lighten(LV_PALETTE_GREY, 1), LV_PART_MAIN);
 
+    g.icon = NULL;
     if (icon) {
-        lv_obj_t* img = lv_img_create(cont);
-        lv_img_set_src(img, icon);
-        lv_obj_set_style_img_recolor(img, icon_color, 0);
-        lv_obj_set_style_img_recolor_opa(img, LV_OPA_COVER, 0);
-        lv_obj_align(img, LV_ALIGN_TOP_MID, 0, FLOW_GAUGE_SIZE / 2 - 16);
+        g.icon = lv_img_create(cont);
+        lv_img_set_src(g.icon, icon);
+        lv_obj_set_style_img_recolor(g.icon, icon_color, 0);
+        lv_obj_set_style_img_recolor_opa(g.icon, LV_OPA_COVER, 0);
+        lv_obj_align(g.icon, LV_ALIGN_TOP_MID, 0, FLOW_GAUGE_SIZE / 2 - 16);
     }
 
     // Значение в разрыве дуги снизу: концы дуги заканчиваются на ~58 px от её верха.
@@ -356,6 +361,20 @@ static void buildFlowTab(lv_obj_t* tab) {
     gauge_pv = flowMakeGauge(tab, 6, 24, &flow_icon_pv, colorOrangeText(), UI_TAB_SOLAR);
     gauge_grid = flowMakeGauge(tab, 248, 24, &flow_icon_grid, icon_dark, UI_TAB_GRID);
     gauge_load = flowMakeGauge(tab, 248, 112, &flow_icon_home, icon_dark, UI_TAB_GRID);
+
+    // ⚠ у правого верхнего угла опоры, внутри дуги; белый кружок отделяет его от красной опоры.
+    flow_grid_warn = lv_label_create(lv_obj_get_parent(gauge_grid.arc));
+    lv_obj_set_size(flow_grid_warn, 18, 18);
+    lv_obj_set_pos(flow_grid_warn, 43, 11);
+    lv_obj_set_style_radius(flow_grid_warn, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(flow_grid_warn, lv_color_white(), 0);
+    lv_obj_set_style_bg_opa(flow_grid_warn, LV_OPA_COVER, 0);
+    lv_obj_set_style_text_align(flow_grid_warn, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(flow_grid_warn, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(flow_grid_warn, lv_palette_main(LV_PALETTE_RED), 0);
+    lv_label_set_text(flow_grid_warn, LV_SYMBOL_WARNING);
+    lv_obj_add_flag(flow_grid_warn, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_flag(flow_grid_warn, LV_OBJ_FLAG_HIDDEN);
 
     // Батарея: SOC над иконкой внутри дуги (как на панели Deye).
     gauge_batt = flowMakeGauge(tab, 6, 112, NULL, icon_dark, UI_TAB_BATTERY);
@@ -909,7 +928,18 @@ void uiUpdate() {
     flowSetLink(flow_pv, pvOn ? 1 : 0, LV_SYMBOL_RIGHT, colorOrangeText());
     lv_label_set_text(label_flow_pv_day, (String(pvDay, 1) + " kWh").c_str());
 
-    lv_label_set_text(label_flow_grid_volts, (String(gridV, 1) + " V").c_str());
+    // Нет внешней сети: видно сразу по красной опоре с ⚠, без чтения вольт.
+    if (gridV < FLOW_GRID_OFF_V) {
+        lv_label_set_text(label_flow_grid_volts, "No grid");
+        lv_obj_set_style_text_color(label_flow_grid_volts, lv_palette_main(LV_PALETTE_RED), 0);
+        lv_obj_set_style_img_recolor(gauge_grid.icon, lv_palette_main(LV_PALETTE_RED), 0);
+        lv_obj_clear_flag(flow_grid_warn, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_label_set_text(label_flow_grid_volts, (String(gridV, 1) + " V").c_str());
+        lv_obj_set_style_text_color(label_flow_grid_volts, lv_palette_main(LV_PALETTE_GREY), 0);
+        lv_obj_set_style_img_recolor(gauge_grid.icon, lv_palette_darken(LV_PALETTE_GREY, 4), 0);
+        lv_obj_add_flag(flow_grid_warn, LV_OBJ_FLAG_HIDDEN);
+    }
     float gridBuyDay = inverterGetDayGridBuy();
     lv_label_set_text(label_flow_grid_day, (String(gridBuyDay, 1) + " kWh").c_str());
 
