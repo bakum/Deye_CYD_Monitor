@@ -37,6 +37,10 @@ float inverterGetBattTemp();
 float inverterGetBattCurrent();
 int16_t inverterGetBattPower();
 int16_t inverterGetGridPower();
+/** Мощность с порта GEN (генератор), W: > 0 — генератор отдаёт мощность. */
+int16_t inverterGetGenPower();
+/** Энергия от генератора за сутки, kWh (регистр 62, обновляется раз в минуту). */
+float inverterGetDayGenEnergy();
 /** Нагрузка на стороне сети (до инвертора), W: внешний CT − внутренний, не меньше 0. */
 uint16_t inverterGetHomePower();
 float inverterGetGridVolts();

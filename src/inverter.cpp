@@ -9,6 +9,8 @@ static uint32_t lastUpdate = 0;
 static bool isRequestSent = false;
 static uint32_t requestTimestamp = 0;
 static uint32_t lastSuccessTimestamp = 0;
+static bool isGenEnergyRequest = false;     // текущий запрос — регистр 62, а не основной блок
+static uint32_t genEnergyRequestTimestamp = 0;  // 0 — ещё не запрашивали
 
 static InverterShowLoaderFn s_showLoader = nullptr;
 static InverterUpdateUiFn s_updateUi = nullptr;
@@ -21,6 +23,7 @@ static float battCurrent = 0.0f;
 static int16_t battPower = 0;
 static int16_t gridPower = 0;
 static int16_t extCtPower = 0;
+static int16_t genPower = 0;
 static float gridVolts = 0.0f;
 static uint16_t loadPower = 0;
 static float pv1Volts = 0.0f;
@@ -34,6 +37,7 @@ static float dayGridBuy = 0.0f;
 static float dayLoadEnergy = 0.0f;
 static float dayBattCharge = 0.0f;
 static float dayBattDischarge = 0.0f;
+static float dayGenEnergy = 0.0f;
 
 static uint8_t calculateChecksum(uint8_t* buf, int len) {
     uint8_t checksum = 0;
@@ -70,7 +74,7 @@ static int16_t getRegSigned(uint8_t* buffer, int start_offset, int reg_addr) {
 struct InverterSample {
     uint16_t battSOC;
     float battVolts, battTemp, battCurrent;
-    int16_t battPower, gridPower, extCtPower;
+    int16_t battPower, gridPower, extCtPower, genPower;
     float gridVolts;
     uint16_t loadPower;
     float pv1Volts, pv1Current;
@@ -89,6 +93,8 @@ static const char* checkPlausibility(const InverterSample& s) {
     if (abs(s.battPower) > 15000) return "battery power";
     if (abs(s.gridPower) > 25000) return "grid power";
     if (abs(s.extCtPower) > 25000) return "external CT power";
+    // Генератор только отдаёт мощность; небольшой минус допускаем как шум измерения.
+    if (s.genPower < -100 || s.genPower > 25000) return "generator power";
     if (s.gridVolts < 0.0f || s.gridVolts > 300.0f) return "grid voltage";
     if (s.loadPower > 25000) return "load power";
     if (s.pv1Volts > 600.0f || s.pv2Volts > 600.0f) return "PV voltage";
@@ -133,13 +139,21 @@ void inverterRequestData() {
 
     req_seq++;
 
+    // Раз в минуту вместо блока читаем суточную энергию генератора (регистр вне блока).
+    // Только после первого успешного блока — при старте сначала основные данные.
+    isGenEnergyRequest = lastSuccessTimestamp != 0 &&
+        (genEnergyRequestTimestamp == 0 || millis() - genEnergyRequestTimestamp >= GEN_ENERGY_INTERVAL_MS);
+    if (isGenEnergyRequest) genEnergyRequestTimestamp = millis();
+    const uint16_t regStart = isGenEnergyRequest ? ADDR_DAY_GEN_ENERGY : REG_BLOCK_START;
+    const uint16_t regLen = isGenEnergyRequest ? 1 : REG_BLOCK_LEN;
+
     uint8_t modbus_frame[8];
     modbus_frame[0] = INVERTER_SLAVE_ID;
     modbus_frame[1] = 0x03;
-    modbus_frame[2] = (uint8_t)(REG_BLOCK_START >> 8);
-    modbus_frame[3] = (uint8_t)(REG_BLOCK_START & 0xFF);
-    modbus_frame[4] = (uint8_t)(REG_BLOCK_LEN >> 8);
-    modbus_frame[5] = (uint8_t)(REG_BLOCK_LEN & 0xFF);
+    modbus_frame[2] = (uint8_t)(regStart >> 8);
+    modbus_frame[3] = (uint8_t)(regStart & 0xFF);
+    modbus_frame[4] = (uint8_t)(regLen >> 8);
+    modbus_frame[5] = (uint8_t)(regLen & 0xFF);
     uint16_t crc = calculateCRC16(modbus_frame, 6);
     modbus_frame[6] = (uint8_t)(crc & 0xFF);
     modbus_frame[7] = (uint8_t)(crc >> 8);
@@ -254,13 +268,35 @@ void inverterHandleResponse() {
 
     // В кадре должен быть весь блок регистров + Modbus CRC (2 байта) до хвоста V5 (checksum + 0x15).
     const int byteCount = buffer[dataOffset - 1];
-    if (byteCount < REG_BLOCK_LEN * 2 || dataOffset + byteCount + 2 > len - 2) {
+    const int expectedBytes = (isGenEnergyRequest ? 1 : REG_BLOCK_LEN) * 2;
+    if (byteCount < expectedBytes || dataOffset + byteCount + 2 > len - 2) {
         dropFrame("incomplete Modbus data");
         return;
     }
     uint16_t rxCrc = (uint16_t)(buffer[dataOffset + byteCount] | (buffer[dataOffset + byteCount + 1] << 8));
     if (rxCrc != calculateCRC16(&buffer[dataOffset - 3], byteCount + 3)) {
         dropFrame("Modbus CRC mismatch");
+        return;
+    }
+
+    if (isGenEnergyRequest) {
+        // Ровно один регистр: длинный ответ — чужой кадр (например, блок), его не разбираем.
+        if (byteCount != 2) {
+            dropFrame("unexpected generator energy length");
+            return;
+        }
+        float e = (uint16_t)((buffer[dataOffset] << 8) | buffer[dataOffset + 1]) / 10.0f;
+        if (e > 500.0f) {
+            Serial.printf("[%lu] Implausible: GenDay=%.1f\n", (unsigned long)millis(), e);
+            dropFrame("day generator energy");
+            return;
+        }
+        dayGenEnergy = e;
+        lastSuccessTimestamp = millis();
+        Serial.printf("[%lu] GenDay=%.1fkWh\n", (unsigned long)millis(), dayGenEnergy);
+        isRequestSent = false;
+        if (s_showLoader) s_showLoader(false);
+        if (s_updateUi) s_updateUi();
         return;
     }
 
@@ -272,6 +308,7 @@ void inverterHandleResponse() {
     s.battCurrent = getRegSigned(buffer, dataOffset, ADDR_BATT_CURRENT) / 100.0f;
     s.gridPower = getRegSigned(buffer, dataOffset, ADDR_GRID_POWER);
     s.extCtPower = getRegSigned(buffer, dataOffset, ADDR_EXT_CT_POWER);
+    s.genPower = getRegSigned(buffer, dataOffset, ADDR_GEN_POWER);
     s.gridVolts = getReg(buffer, dataOffset, ADDR_GRID_VOLTAGE) / 10.0f;
     s.loadPower = getReg(buffer, dataOffset, ADDR_LOAD_POWER);
     s.pv1Volts = getReg(buffer, dataOffset, ADDR_PV1_VOLTAGE) / 10.0f;
@@ -288,9 +325,9 @@ void inverterHandleResponse() {
 
     const char* implausible = checkPlausibility(s);
     if (implausible) {
-        Serial.printf("[%lu] Implausible: SOC=%u V=%.2f A=%.2f P=%dW T=%.1f Grid=%dW/%.1fV CT=%dW Load=%uW PV1=%.1fV/%.1fA/%uW PV2=%.1fV/%.1fA/%uW Day=%.1f Buy=%.1f LoadDay=%.1f BatChg=%.1f BatDis=%.1f\n",
+        Serial.printf("[%lu] Implausible: SOC=%u V=%.2f A=%.2f P=%dW T=%.1f Grid=%dW/%.1fV CT=%dW Gen=%dW Load=%uW PV1=%.1fV/%.1fA/%uW PV2=%.1fV/%.1fA/%uW Day=%.1f Buy=%.1f LoadDay=%.1f BatChg=%.1f BatDis=%.1f\n",
             (unsigned long)millis(), s.battSOC, s.battVolts, s.battCurrent, s.battPower, s.battTemp,
-            s.gridPower, s.gridVolts, s.extCtPower, s.loadPower, s.pv1Volts, s.pv1Current, s.pv1Power,
+            s.gridPower, s.gridVolts, s.extCtPower, s.genPower, s.loadPower, s.pv1Volts, s.pv1Current, s.pv1Power,
             s.pv2Volts, s.pv2Current, s.pv2Power, s.dayPvEnergy, s.dayGridBuy, s.dayLoadEnergy,
             s.dayBattCharge, s.dayBattDischarge);
         dropFrame(implausible);
@@ -304,6 +341,7 @@ void inverterHandleResponse() {
     battCurrent = s.battCurrent;
     gridPower = s.gridPower;
     extCtPower = s.extCtPower;
+    genPower = s.genPower;
     gridVolts = s.gridVolts;
     loadPower = s.loadPower;
     pv1Volts = s.pv1Volts;
@@ -319,8 +357,8 @@ void inverterHandleResponse() {
     dayBattDischarge = s.dayBattDischarge;
 
     lastSuccessTimestamp = millis();
-    Serial.printf("[%lu] Data: SOC=%d%%, V=%.2f, A=%.2f, P=%dW, T=%.1fC, Grid=%dW, CT=%dW, Load=%dW, PV=%luW (PV1=%uW PV2=%uW), Day=%.1fkWh, Buy=%.1fkWh, LoadDay=%.1fkWh, BatChg=%.1fkWh, BatDis=%.1fkWh\n",
-        (unsigned long)millis(), battSOC, battVolts, battCurrent, battPower, battTemp, gridPower, extCtPower, loadPower,
+    Serial.printf("[%lu] Data: SOC=%d%%, V=%.2f, A=%.2f, P=%dW, T=%.1fC, Grid=%dW, CT=%dW, Gen=%dW, Load=%dW, PV=%luW (PV1=%uW PV2=%uW), Day=%.1fkWh, Buy=%.1fkWh, LoadDay=%.1fkWh, BatChg=%.1fkWh, BatDis=%.1fkWh\n",
+        (unsigned long)millis(), battSOC, battVolts, battCurrent, battPower, battTemp, gridPower, extCtPower, genPower, loadPower,
         (unsigned long)((uint32_t)pv1Power + (uint32_t)pv2Power), pv1Power, pv2Power, dayPvEnergy,
         dayGridBuy, dayLoadEnergy, dayBattCharge, dayBattDischarge);
 
@@ -346,6 +384,8 @@ float inverterGetBattTemp() { return battTemp; }
 float inverterGetBattCurrent() { return battCurrent; }
 int16_t inverterGetBattPower() { return battPower; }
 int16_t inverterGetGridPower() { return gridPower; }
+int16_t inverterGetGenPower() { return genPower; }
+float inverterGetDayGenEnergy() { return dayGenEnergy; }
 // Нагрузка до инвертора: внешний CT (весь ввод дома) минус внутренний (порт сети инвертора).
 uint16_t inverterGetHomePower() {
     int32_t home = (int32_t)extCtPower - (int32_t)gridPower;

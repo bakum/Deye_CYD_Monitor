@@ -42,11 +42,17 @@
     const uint16_t ADDR_DAY_GRID_BUY    = 76;   // куплено из сети за сутки, /10 kWh
     const uint16_t ADDR_DAY_LOAD_ENERGY = 84;   // потребление нагрузки за сутки, /10 kWh
 
+    // Вне блока: 62..191 — 130 регистров, больше 125 на запрос. Читается отдельным запросом
+    // раз в GEN_ENERGY_INTERVAL_MS вместо очередного опроса блока.
+    const uint16_t ADDR_DAY_GEN_ENERGY  = 62;   // от генератора (порт GEN) за сутки, /10 kWh
+    const uint32_t GEN_ENERGY_INTERVAL_MS = 60000;
+
     const uint16_t ADDR_DAY_PV_ENERGY   = 108;
     const uint16_t ADDR_PV1_VOLTAGE     = 109;
     const uint16_t ADDR_PV1_CURRENT     = 110;
     const uint16_t ADDR_PV2_VOLTAGE     = 111;
     const uint16_t ADDR_PV2_CURRENT     = 112;
+    const uint16_t ADDR_GEN_POWER       = 166;  // порт GEN (генератор / AC couple), W
     const uint16_t ADDR_GRID_POWER      = 169;
     const uint16_t ADDR_EXT_CT_POWER    = 172;  // сеть по внешнему CT (ввод дома), signed
     const uint16_t ADDR_GRID_VOLTAGE    = 150;
