@@ -26,6 +26,7 @@ static lv_obj_t* label_arrow_grid;
 static lv_obj_t* label_arrow_batt;
 static lv_obj_t* label_batt_val_t2;
 static lv_obj_t* label_source_val;
+static lv_obj_t* label_source_gen_day;   // «Gen 2.3 kWh» — энергия от генератора за сутки
 static lv_obj_t* label_pv_total;
 static lv_obj_t* label_pv_day;
 static lv_obj_t* label_pv1_volts;
@@ -70,17 +71,21 @@ static lv_obj_t* label_flow_grid_volts;
 static lv_obj_t* label_flow_pv_day;
 static lv_obj_t* label_flow_grid_day;
 static lv_obj_t* label_flow_load_day;
-static lv_obj_t* flow_mix_arc;        // кольцо в центре: фон «сеть», заполнение PV + разряд батареи
+static lv_obj_t* flow_mix_arc;        // кольцо в центре: фон «сеть», заполнение PV + батарея + генератор
+static lv_obj_t* flow_mix_arc_batt;   // поверх: заполнение PV + разряд батареи
 static lv_obj_t* flow_mix_arc_pv;     // поверх: заполнение PV
 static lv_obj_t* label_flow_mix;      // «90% own» под кольцом
 static lv_obj_t* flow_status_label;   // ON/OFF внутри кольца
 static lv_obj_t* flow_grid_warn;      // ⚠ на опоре, когда внешней сети нет
+static lv_obj_t* flow_gen_node;       // генератор над кольцом: мощность и иконка, виден только при работе
+static lv_obj_t* label_flow_gen;
 
 // Иконки вкладки Flow 32×32 (src/flow_icons.c, генерируются tools/gen_flow_icons.py)
 LV_IMG_DECLARE(flow_icon_pv);
 LV_IMG_DECLARE(flow_icon_grid);
 LV_IMG_DECLARE(flow_icon_battery);
 LV_IMG_DECLARE(flow_icon_home);
+LV_IMG_DECLARE(flow_icon_gen);
 
 /** Оранжевый для текста: темнее палитрового, чтобы читался на белом фоне. */
 static lv_color_t colorOrangeText() {
@@ -90,6 +95,11 @@ static lv_color_t colorOrangeText() {
 /** Оранжевый для дуг Flow: палитровый на CYD выглядит жёлтым. */
 static lv_color_t colorOrangeArc() {
     return lv_palette_darken(LV_PALETTE_ORANGE, 2);
+}
+
+/** Генератор: фиолетовый — оранжевым уже показаны PV и разряд батареи. */
+static lv_color_t colorGen() {
+    return lv_palette_main(LV_PALETTE_PURPLE);
 }
 
 // --- Вкладка Flow ---
@@ -103,6 +113,8 @@ static lv_point_t flow_pts_pv[]   = {{76, 57}, {110, 57}, {110, 96}, {136, 96}};
 static lv_point_t flow_pts_grid[] = {{244, 57}, {210, 57}, {210, 96}, {184, 96}};
 static lv_point_t flow_pts_batt[] = {{76, 145}, {110, 145}, {110, 114}, {136, 114}};
 static lv_point_t flow_pts_load[] = {{184, 114}, {210, 114}, {210, 145}, {244, 145}};
+// Генератор: узел над кольцом x 130..190, y 2..54, линия вертикально вниз до верха кольца.
+static lv_point_t flow_pts_gen[]  = {{160, 56}, {160, 79}};
 
 /** Связь узла с инвертором: пунктир, стрелка и бегущая точка. */
 struct FlowLink {
@@ -114,11 +126,12 @@ struct FlowLink {
     lv_obj_t* dot;
     int8_t dir;        // 0 — потока нет, 1 — по порядку точек, -1 — обратно
 };
-// Точки pv/grid/batt идут от узла к центру, load — от центра к нагрузке.
+// Точки pv/grid/batt/gen идут от узла к центру, load — от центра к нагрузке.
 static FlowLink flow_pv   = {flow_pts_pv, 4};
 static FlowLink flow_grid = {flow_pts_grid, 4};
 static FlowLink flow_batt = {flow_pts_batt, 4};
 static FlowLink flow_load = {flow_pts_load, 4};
+static FlowLink flow_gen  = {flow_pts_gen, 2};
 
 static const uint32_t FLOW_DOT_MS_PER_PX = 20;  // скорость точки ~50 px/s
 // Импорт из сети до 30 W — запас регулирования Deye (обычно 18–22 W), не считаем потоком:
@@ -127,6 +140,8 @@ static const int16_t FLOW_GRID_IMPORT_IDLE_W = 30;
 // Разряд батареи до 50 W — собственное потребление в покое, не считаем потоком:
 // линия серая, без точки. Заряд показывается от 10 W.
 static const int16_t FLOW_BATT_DISCHARGE_IDLE_W = 50;
+// Генератор до 30 W считаем остановленным: узел и линия скрыты.
+static const int16_t FLOW_GEN_IDLE_W = 30;
 // Напряжение сети ниже 10 V — внешней сети нет: красная опора с ⚠ и «No grid».
 static const float FLOW_GRID_OFF_V = 10.0f;
 
@@ -356,6 +371,8 @@ static void buildFlowTab(lv_obj_t* tab) {
     flowMakeLine(tab, flow_grid, &style_flow_line);
     flowMakeLine(tab, flow_batt, &style_flow_line);
     flowMakeLine(tab, flow_load, &style_flow_line);
+    flowMakeLine(tab, flow_gen, &style_flow_line);
+    lv_obj_add_flag(flow_gen.line, LV_OBJ_FLAG_HIDDEN);
 
     lv_color_t icon_dark = lv_palette_darken(LV_PALETTE_GREY, 4);
     gauge_pv = flowMakeGauge(tab, 6, 24, &flow_icon_pv, colorOrangeText(), UI_TAB_SOLAR);
@@ -420,12 +437,14 @@ static void buildFlowTab(lv_obj_t* tab) {
     flowMakeTapTarget(label_flow_batt_temp, UI_TAB_BATTERY);
 
     // Центр: кольцо-диаграмма источников энергии за сутки (обновляется в uiUpdate):
-    // янтарный — PV, бирюзовый — разряд батареи, тёмно-красный — куплено из сети.
-    // У lv_arc только два цвета, поэтому две дуги друг над другом: нижняя — фон «сеть»
-    // и заполнение PV+батарея, верхняя — прозрачный фон и заполнение PV.
+    // янтарный — PV, бирюзовый — разряд батареи, фиолетовый — генератор, тёмно-красный — куплено из сети.
+    // У lv_arc только два цвета, поэтому три дуги друг над другом: нижняя — фон «сеть»
+    // и заполнение PV+батарея+генератор, средняя — PV+батарея, верхняя — PV (у верхних фон прозрачный).
     // Внутри статус инвертора ON/OFF (в uiUpdateStatusBar).
-    flow_mix_arc = flowMakeMixArc(tab, lv_palette_main(LV_PALETTE_TEAL));
+    flow_mix_arc = flowMakeMixArc(tab, colorGen());
     lv_obj_set_style_arc_color(flow_mix_arc, flowIdleColor(), LV_PART_MAIN);
+    flow_mix_arc_batt = flowMakeMixArc(tab, lv_palette_main(LV_PALETTE_TEAL));
+    lv_obj_set_style_arc_opa(flow_mix_arc_batt, LV_OPA_TRANSP, LV_PART_MAIN);
     // Янтарный против тёмно-красного: оранжевый и красный на CYD сливаются.
     flow_mix_arc_pv = flowMakeMixArc(tab, lv_palette_main(LV_PALETTE_AMBER));
     lv_obj_set_style_arc_opa(flow_mix_arc_pv, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -442,15 +461,41 @@ static void buildFlowTab(lv_obj_t* tab) {
     lv_label_set_text(flow_status_label, "?");
     lv_obj_center(flow_status_label);
 
+    // Генератор (порт GEN): компактный узел над кольцом — для дуги 66×66 места нет.
+    // Мощность над иконкой: под иконкой линия к кольцу, по бокам суточные kWh PV и сети.
+    // Узел не кнопка: подробной вкладки для генератора нет.
+    flow_gen_node = lv_obj_create(tab);
+    lv_obj_remove_style_all(flow_gen_node);
+    lv_obj_set_size(flow_gen_node, 60, 52);
+    lv_obj_set_pos(flow_gen_node, 130, 2);
+    lv_obj_clear_flag(flow_gen_node, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    label_flow_gen = lv_label_create(flow_gen_node);
+    lv_obj_set_width(label_flow_gen, 60);
+    lv_obj_set_style_text_align(label_flow_gen, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(label_flow_gen, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(label_flow_gen, colorGen(), 0);
+    lv_obj_align(label_flow_gen, LV_ALIGN_TOP_MID, 0, 0);
+    lv_label_set_text(label_flow_gen, "-- W");
+    lv_obj_t* gen_img = lv_img_create(flow_gen_node);
+    lv_img_set_src(gen_img, &flow_icon_gen);
+    lv_obj_set_style_img_recolor(gen_img, colorGen(), 0);
+    lv_obj_set_style_img_recolor_opa(gen_img, LV_OPA_COVER, 0);
+    lv_obj_align(gen_img, LV_ALIGN_TOP_MID, 0, 20);
+    // Иконка заходит на подпись напряжения сети — не перехватывать её нажатие.
+    lv_obj_clear_flag(gen_img, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(flow_gen_node, LV_OBJ_FLAG_HIDDEN);
+
     flowMakeDot(tab, flow_pv);
     flowMakeDot(tab, flow_grid);
     flowMakeDot(tab, flow_batt);
     flowMakeDot(tab, flow_load);
+    flowMakeDot(tab, flow_gen);
 
     flow_pv.arrow = flowMakeArrow(tab);
     flow_grid.arrow = flowMakeArrow(tab);
     flow_batt.arrow = flowMakeArrow(tab);
     flow_load.arrow = flowMakeArrow(tab);
+    flow_gen.arrow = flowMakeArrow(tab);
 }
 
 // --- Callbacks ---
@@ -699,7 +744,12 @@ void uiBuild() {
     label_source_val = lv_label_create(cont_src);
     lv_label_set_text(label_source_val, "--");
     lv_obj_set_style_text_font(label_source_val, &lv_font_montserrat_16, 0);
-    lv_obj_align(label_source_val, LV_ALIGN_CENTER, 0, 6);
+    // Как в карточке GRID: значение чуть выше центра, внизу место под строку генератора.
+    lv_obj_align(label_source_val, LV_ALIGN_CENTER, 0, 2);
+    label_source_gen_day = lv_label_create(cont_src);
+    lv_obj_set_style_text_color(label_source_gen_day, colorGen(), 0);
+    lv_label_set_text(label_source_gen_day, "");
+    lv_obj_align(label_source_gen_day, LV_ALIGN_BOTTOM_MID, 0, 0);
 
     lv_obj_t* cont_b_t2 = lv_obj_create(tab_grid);
     lv_obj_set_size(cont_b_t2, 128, 68);
@@ -828,6 +878,7 @@ void uiUpdate() {
     float temp = inverterGetBattTemp();
     int16_t gridPwr = inverterGetGridPower();
     float gridV = inverterGetGridVolts();
+    int16_t genPwr = inverterGetGenPower();
     uint16_t loadPwr = inverterGetLoadPower();
     uint16_t homePwr = inverterGetHomePower();
     uint32_t pvTotal = inverterGetPvTotalPower();
@@ -904,22 +955,32 @@ void uiUpdate() {
     const bool fromSolar = pvTotal > 10;
     const bool fromBatt = battPwr > 10;
     const bool fromGrid = gridPwr > 10;
+    const bool fromGen = genPwr > FLOW_GEN_IDLE_W;
     char srcText[28] = "Idle";
-    if (fromSolar || fromBatt || fromGrid) {
+    if (fromSolar || fromBatt || fromGrid || fromGen) {
         int n = 0;
         if (fromSolar) n += snprintf(srcText + n, sizeof(srcText) - (size_t)n, "%sPV", n ? "+" : "");
         if (fromBatt) n += snprintf(srcText + n, sizeof(srcText) - (size_t)n, "%sBat", n ? "+" : "");
-        if (fromGrid) snprintf(srcText + n, sizeof(srcText) - (size_t)n, "%sGrid", n ? "+" : "");
+        if (fromGrid) n += snprintf(srcText + n, sizeof(srcText) - (size_t)n, "%sGrid", n ? "+" : "");
+        if (fromGen) snprintf(srcText + n, sizeof(srcText) - (size_t)n, "%sGen", n ? "+" : "");
     }
     lv_label_set_text(label_source_val, srcText);
     if (fromGrid)
         lv_obj_set_style_text_color(label_source_val, lv_palette_main(LV_PALETTE_RED), 0);
+    else if (fromGen)
+        lv_obj_set_style_text_color(label_source_val, colorGen(), 0);
     else if (fromSolar)
         lv_obj_set_style_text_color(label_source_val, colorOrangeText(), 0);
     else if (fromBatt)
         lv_obj_set_style_text_color(label_source_val, colorOrangeText(), 0);
     else
         lv_obj_set_style_text_color(label_source_val, lv_palette_main(LV_PALETTE_GREY), 0);
+    // Строка генератора только в дни, когда он работал (счётчик сбрасывается в полночь).
+    float genDay = inverterGetDayGenEnergy();
+    if (genDay >= 0.1f)
+        lv_label_set_text(label_source_gen_day, (String("Gen ") + String(genDay, 1) + " kWh").c_str());
+    else
+        lv_label_set_text(label_source_gen_day, "");
 
     // Flow: дуги заполняются по мощности, стрелки показывают направление относительно центра.
     lv_color_t idle = flowIdleColor();
@@ -943,20 +1004,23 @@ void uiUpdate() {
     float gridBuyDay = inverterGetDayGridBuy();
     lv_label_set_text(label_flow_grid_day, (String(gridBuyDay, 1) + " kWh").c_str());
 
-    // Кольцо: источники энергии за сутки — PV, разряд батареи, куплено из сети.
-    // Подпись «own» — доля без сети: 1 − куплено / всего.
+    // Кольцо: источники энергии за сутки — PV, разряд батареи, генератор, куплено из сети.
+    // Подпись «own» — доля PV и батареи: генератор, как и сеть, — покупная энергия.
     float battDisDay = inverterGetDayBattDischarge();
-    float mixTotal = pvDay + battDisDay + gridBuyDay;
+    float mixTotal = pvDay + battDisDay + genDay + gridBuyDay;
     if (mixTotal >= 0.1f) {
         int32_t pvShare = (int32_t)(pvDay * 1000.0f / mixTotal + 0.5f);
         int32_t ownShare = (int32_t)((pvDay + battDisDay) * 1000.0f / mixTotal + 0.5f);
+        int32_t nonGridShare = (int32_t)((pvDay + battDisDay + genDay) * 1000.0f / mixTotal + 0.5f);
         lv_arc_set_value(flow_mix_arc_pv, pvShare);
-        lv_arc_set_value(flow_mix_arc, ownShare);
+        lv_arc_set_value(flow_mix_arc_batt, ownShare);
+        lv_arc_set_value(flow_mix_arc, nonGridShare);
         lv_obj_set_style_arc_color(flow_mix_arc, lv_palette_darken(LV_PALETTE_RED, 2), LV_PART_MAIN);
         lv_label_set_text(label_flow_mix, (String((ownShare + 5) / 10) + "% own").c_str());
     } else {
         // В начале суток счётчики нулевые — серое кольцо без подписи.
         lv_arc_set_value(flow_mix_arc_pv, 0);
+        lv_arc_set_value(flow_mix_arc_batt, 0);
         lv_arc_set_value(flow_mix_arc, 0);
         lv_obj_set_style_arc_color(flow_mix_arc, flowIdleColor(), LV_PART_MAIN);
         lv_label_set_text(label_flow_mix, "");
@@ -970,6 +1034,18 @@ void uiUpdate() {
     } else {
         flowSetGauge(gauge_grid, gridPwr, idle);
         flowSetLink(flow_grid, 0, "", idle);
+    }
+
+    // Генератор: узел и линия появляются только во время работы.
+    if (genPwr > FLOW_GEN_IDLE_W) {
+        lv_label_set_text(label_flow_gen, flowFormatPower(genPwr).c_str());
+        lv_obj_clear_flag(flow_gen_node, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(flow_gen.line, LV_OBJ_FLAG_HIDDEN);
+        flowSetLink(flow_gen, 1, LV_SYMBOL_DOWN, colorGen());
+    } else {
+        lv_obj_add_flag(flow_gen_node, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(flow_gen.line, LV_OBJ_FLAG_HIDDEN);
+        flowSetLink(flow_gen, 0, "", idle);
     }
 
     lv_label_set_text(label_flow_soc, (String(soc) + "%").c_str());
