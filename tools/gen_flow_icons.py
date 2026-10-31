@@ -76,11 +76,25 @@ def icon_home():
     return img
 
 
+def icon_gen():
+    img, d = canvas()
+    # Переносной генератор: рама-ручка сверху, корпус, ножки, внутри синусоида (переменный ток).
+    # Молнию не рисуем — она уже есть на батарее.
+    line(d, [(16, 30), (16, 10), (80, 10), (80, 30)])
+    d.rounded_rectangle((6, 30, 90, 80), radius=8, outline=255, width=W)
+    line(d, [(20, 82), (20, 92)])
+    line(d, [(76, 82), (76, 92)])
+    wave = [(24 + k, 55 - 12 * math.sin(k / 48 * 2 * math.pi)) for k in range(0, 49, 2)]
+    line(d, wave, 6)
+    return img
+
+
 ICONS = [
     ("flow_icon_pv", icon_pv),
     ("flow_icon_grid", icon_grid),
     ("flow_icon_battery", icon_battery),
     ("flow_icon_home", icon_home),
+    ("flow_icon_gen", icon_gen),
 ]
 
 
