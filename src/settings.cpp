@@ -18,6 +18,8 @@ int LCD_BRIGHTNESS = 100;
 uint32_t lastTouchTime = 0;
 bool isScreenOn = true;
 bool shouldSaveConfig = false;
+int NIGHT_FROM_HOUR = DEFAULT_NIGHT_FROM_HOUR;
+int NIGHT_TO_HOUR = DEFAULT_NIGHT_TO_HOUR;
 
 void settingsLoad() {
     preferences.begin("deye_config", false);
@@ -33,6 +35,10 @@ void settingsLoad() {
         INVERTER_POWER_W = DEFAULT_INVERTER_POWER_W;
     SCREEN_TIMEOUT_MIN = preferences.getInt("scr_timeout", 10);
     LCD_BRIGHTNESS = preferences.getInt("lcd_bri", 100);
+    NIGHT_FROM_HOUR = preferences.getInt("night_from", DEFAULT_NIGHT_FROM_HOUR);
+    NIGHT_TO_HOUR = preferences.getInt("night_to", DEFAULT_NIGHT_TO_HOUR);
+    if (NIGHT_FROM_HOUR < -1 || NIGHT_FROM_HOUR > 23) NIGHT_FROM_HOUR = DEFAULT_NIGHT_FROM_HOUR;
+    if (NIGHT_TO_HOUR < 0 || NIGHT_TO_HOUR > 23) NIGHT_TO_HOUR = DEFAULT_NIGHT_TO_HOUR;
 
     p_ip.toCharArray(INVERTER_IP, 16);
     INVERTER_PORT = p_port;
@@ -76,6 +82,19 @@ void settingsSaveTimezone(int tzHour) {
     preferences.begin("deye_config", false);
     preferences.putInt("tz_hour", TIMEZONE_HOUR);
     preferences.end();
+}
+
+void settingsSaveNightHours(int fromHour, int toHour) {
+    NIGHT_FROM_HOUR = fromHour;
+    NIGHT_TO_HOUR = toHour;
+    preferences.begin("deye_config", false);
+    preferences.putInt("night_from", NIGHT_FROM_HOUR);
+    preferences.putInt("night_to", NIGHT_TO_HOUR);
+    preferences.end();
+    if (NIGHT_FROM_HOUR < 0)
+        Serial.println("Night: off");
+    else
+        Serial.printf("Night: %02d-%02d\n", NIGHT_FROM_HOUR, NIGHT_TO_HOUR);
 }
 
 void settingsTouchReset() {

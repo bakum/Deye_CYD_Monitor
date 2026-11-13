@@ -60,6 +60,20 @@ static void alarmCheck() {
     }
 }
 
+/**
+ * Сейчас тихие часы? Интервал [NIGHT_FROM_HOUR, NIGHT_TO_HOUR) по местному времени, может переходить
+ * через полночь (23–07). Время ещё не синхронизировано по NTP — не ночь: лучше лишний раз разбудить.
+ * getLocalTime(…, 0) не ждёт синхронизации, loop() не блокируется.
+ */
+static bool isNightNow() {
+    if (NIGHT_FROM_HOUR < 0 || NIGHT_FROM_HOUR == NIGHT_TO_HOUR) return false;
+    struct tm t;
+    if (!getLocalTime(&t, 0)) return false;
+    int h = t.tm_hour;
+    if (NIGHT_FROM_HOUR < NIGHT_TO_HOUR) return h >= NIGHT_FROM_HOUR && h < NIGHT_TO_HOUR;
+    return h >= NIGHT_FROM_HOUR || h < NIGHT_TO_HOUR;
+}
+
 static uint32_t bootPressStart = 0;
 static bool bootLongPressTriggered = false;
 static uint32_t lastTimeoutLog = 0;  // не спамить Serial при постоянных таймаутах
@@ -89,8 +103,20 @@ static void gridCheckState() {
                       now == GRID_ON ? "RESTORED" : "LOST", v, settingsIsScreenOn() ? "on" : "off");
         // При включённом экране хватает вышки на Flow; тревога — только если экран погашен
         // (или уже идёт тревога: тогда она перезапускается с новым состоянием).
-        if (!settingsIsScreenOn())
-            alarmStartMode(now == GRID_OFF ? ALARM_GRID_LOST : ALARM_GRID_RESTORED);
+        if (!settingsIsScreenOn()) {
+            if (isNightNow()) {
+                // Тихие часы: экран не будим. Тревога, горевшая с вечера, стала неактуальной — гасим.
+                Serial.printf("[%lu] Alarm: suppressed (night %02d-%02d)\n", (unsigned long)millis(),
+                              NIGHT_FROM_HOUR, NIGHT_TO_HOUR);
+                if (alarmMode != ALARM_NONE) {
+                    alarmMode = ALARM_NONE;
+                    backlightSet(0);
+                    Serial.printf("[%lu] Alarm: off, backlight off\n", (unsigned long)millis());
+                }
+            } else {
+                alarmStartMode(now == GRID_OFF ? ALARM_GRID_LOST : ALARM_GRID_RESTORED);
+            }
+        }
     }
     gridState = now;
 }

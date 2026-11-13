@@ -527,6 +527,21 @@ static void dropdown_timezone_cb(lv_event_t* e) {
     settingsTouchReset();
 }
 
+// Тихие часы: «с» (0 = Off, i = час i-1) и «до» (i = час i).
+static lv_obj_t* dd_night_from = nullptr;
+static lv_obj_t* dd_night_to = nullptr;
+
+static void dropdown_night_cb(lv_event_t* e) {
+    (void)e;
+    int from = (int)lv_dropdown_get_selected(dd_night_from) - 1;
+    int to = (int)lv_dropdown_get_selected(dd_night_to);
+    // При Off выбор «до» не имеет смысла — список неактивен.
+    if (from < 0) lv_obj_add_state(dd_night_to, LV_STATE_DISABLED);
+    else lv_obj_clear_state(dd_night_to, LV_STATE_DISABLED);
+    settingsSaveNightHours(from, to);
+    settingsTouchReset();
+}
+
 static void btn_reboot_event_cb(lv_event_t* e) {
     (void)e;
     ESP.restart();
@@ -612,6 +627,36 @@ void uiBuild() {
     if (tz_index > 26) tz_index = 26;
     lv_dropdown_set_selected(dd_tz, tz_index);
     lv_obj_add_event_cb(dd_tz, dropdown_timezone_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    // Settings: тихие часы (тревога о сети не будит экран)
+    lv_obj_t* label_night = lv_label_create(tab_settings);
+    lv_label_set_text(label_night, "Night");
+    lv_obj_align(label_night, LV_ALIGN_TOP_LEFT, 5, 145);
+    static char hours_opts[24 * 3 + 1];       // "00\n01\n...\n23"
+    static char from_opts[4 + 24 * 3 + 1];    // "Off\n00\n...\n23"
+    hours_opts[0] = '\0';
+    for (int h = 0; h < 24; h++) {
+        char buf[4];
+        snprintf(buf, sizeof(buf), h < 23 ? "%02d\n" : "%02d", h);
+        strcat(hours_opts, buf);
+    }
+    snprintf(from_opts, sizeof(from_opts), "Off\n%s", hours_opts);
+    dd_night_from = lv_dropdown_create(tab_settings);
+    lv_dropdown_set_options(dd_night_from, from_opts);
+    lv_obj_set_width(dd_night_from, 70);
+    lv_obj_align(dd_night_from, LV_ALIGN_TOP_RIGHT, -100, 135);
+    lv_dropdown_set_selected(dd_night_from, NIGHT_FROM_HOUR + 1);
+    lv_obj_t* label_dash = lv_label_create(tab_settings);
+    lv_label_set_text(label_dash, "-");
+    lv_obj_align(label_dash, LV_ALIGN_TOP_RIGHT, -86, 145);
+    dd_night_to = lv_dropdown_create(tab_settings);
+    lv_dropdown_set_options(dd_night_to, hours_opts);
+    lv_obj_set_width(dd_night_to, 70);
+    lv_obj_align(dd_night_to, LV_ALIGN_TOP_RIGHT, -10, 135);
+    lv_dropdown_set_selected(dd_night_to, NIGHT_TO_HOUR);
+    if (NIGHT_FROM_HOUR < 0) lv_obj_add_state(dd_night_to, LV_STATE_DISABLED);
+    lv_obj_add_event_cb(dd_night_from, dropdown_night_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(dd_night_to, dropdown_night_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     // Reboot / Reset WiFi
     lv_obj_t* btn_reboot = lv_btn_create(tab_settings);
