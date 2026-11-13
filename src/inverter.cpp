@@ -126,7 +126,7 @@ void inverterSetCallbacks(InverterShowLoaderFn showLoader, InverterUpdateUiFn up
     s_updateUi = updateUi;
 }
 
-void inverterRequestData() {
+void inverterRequestData(bool blockOnly) {
     if (!client.connected()) {
         Serial.println("Connecting to inverter...");
         if (!client.connect(INVERTER_IP, INVERTER_PORT)) {
@@ -141,7 +141,7 @@ void inverterRequestData() {
 
     // Раз в минуту вместо блока читаем суточную энергию генератора (регистр вне блока).
     // Только после первого успешного блока — при старте сначала основные данные.
-    isGenEnergyRequest = lastSuccessTimestamp != 0 &&
+    isGenEnergyRequest = !blockOnly && lastSuccessTimestamp != 0 &&
         (genEnergyRequestTimestamp == 0 || millis() - genEnergyRequestTimestamp >= GEN_ENERGY_INTERVAL_MS);
     if (isGenEnergyRequest) genEnergyRequestTimestamp = millis();
     const uint16_t regStart = isGenEnergyRequest ? ADDR_DAY_GEN_ENERGY : REG_BLOCK_START;

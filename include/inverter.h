@@ -13,8 +13,10 @@ typedef void (*InverterUpdateUiFn)(void);
 /** Установить колбэки (вызвать из main после создания UI). */
 void inverterSetCallbacks(InverterShowLoaderFn showLoader, InverterUpdateUiFn updateUi);
 
-/** Отправить запрос к инвертору (Solarman V5 + Modbus). */
-void inverterRequestData();
+/** Отправить запрос к инвертору (Solarman V5 + Modbus).
+ *  blockOnly = true — только основной блок, без суточной энергии генератора
+ *  (во сне: каждый редкий опрос должен приносить напряжение сети). */
+void inverterRequestData(bool blockOnly = false);
 
 /** Обработать входящие данные; при успешном разборе вызывает updateUi и showLoader(false). */
 void inverterHandleResponse();

@@ -142,8 +142,6 @@ static const int16_t FLOW_GRID_IMPORT_IDLE_W = 30;
 static const int16_t FLOW_BATT_DISCHARGE_IDLE_W = 50;
 // Генератор до 30 W считаем остановленным: узел и линия скрыты.
 static const int16_t FLOW_GEN_IDLE_W = 30;
-// Напряжение сети ниже 10 V — внешней сети нет: красная опора с ⚠ и «No grid».
-static const float FLOW_GRID_OFF_V = 10.0f;
 
 /** Цвет неактивной линии: обычный серый, светлее выцветает на CYD. */
 static lv_color_t flowIdleColor() {
@@ -990,7 +988,7 @@ void uiUpdate() {
     lv_label_set_text(label_flow_pv_day, (String(pvDay, 1) + " kWh").c_str());
 
     // Нет внешней сети: видно сразу по красной опоре с ⚠, без чтения вольт.
-    if (gridV < FLOW_GRID_OFF_V) {
+    if (gridV < GRID_OFF_VOLTS) {
         lv_label_set_text(label_flow_grid_volts, "No grid");
         lv_obj_set_style_text_color(label_flow_grid_volts, lv_palette_main(LV_PALETTE_RED), 0);
         lv_obj_set_style_img_recolor(gauge_grid.icon, lv_palette_main(LV_PALETTE_RED), 0);
