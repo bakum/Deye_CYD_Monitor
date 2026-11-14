@@ -24,20 +24,26 @@ static GridState gridState = GRID_UNKNOWN;
 static uint32_t gridCheckedSuccessTs = 0;  // какой успешный ответ уже учтён
 
 // Тревога: смена состояния сети, пока экран погашен. Экран формально остаётся «выключенным»
-// (settingsIsScreenOn() == false), горит только подсветка на минимуме — поэтому касание
+// (settingsIsScreenOn() == false), горит только приглушённая подсветка — поэтому касание
 // идёт по обычному пути пробуждения в touch.cpp: обычная яркость, касание не уходит в LVGL.
 enum AlarmMode { ALARM_NONE, ALARM_GRID_LOST, ALARM_GRID_RESTORED };
 static AlarmMode alarmMode = ALARM_NONE;
 static uint32_t alarmStart = 0;
-const int ALARM_BRIGHTNESS_SHARE_PCT = 20;           // подсветка тревоги — 20% от рабочей яркости
+const int ALARM_BRIGHTNESS_PCT = 50;                 // подсветка тревоги — половина полной яркости
 const uint32_t ALARM_RESTORED_SHOW_MS = 2 * 60000;   // «сеть вернулась» гаснет сама через 2 мин
+// «Сеть пропала» сначала мигает (полпериода горит, полпериода погашена), потом горит ровно.
+const uint32_t ALARM_BLINK_HALF_MS = 500;
+const uint32_t ALARM_BLINK_MS = 60000;
+static bool alarmBlinking = false;   // идёт мигание
+static bool alarmBlinkLit = true;    // текущая фаза мигания: подсветка горит
 
-/** Включить тревогу: минимальная подсветка и вкладка Flow. Повторная смена сети перезапускает её. */
+/** Включить тревогу: приглушённая подсветка и вкладка Flow. Повторная смена сети перезапускает её. */
 static void alarmStartMode(AlarmMode mode) {
     alarmMode = mode;
     alarmStart = millis();
-    int pct = settingsGetBrightness() * ALARM_BRIGHTNESS_SHARE_PCT / 100;
-    if (pct < 1) pct = 1;  // 0 в backlightSet — полное выключение
+    alarmBlinking = (mode == ALARM_GRID_LOST);
+    alarmBlinkLit = true;
+    int pct = ALARM_BRIGHTNESS_PCT;
     backlightSet(pct);
     uiSetTab(UI_TAB_FLOW);
     Serial.printf("[%lu] Alarm: %s, backlight %d%%\n", (unsigned long)millis(),
@@ -50,8 +56,25 @@ static void alarmCheck() {
     if (settingsIsScreenOn()) {
         // Разбудили касанием или BOOT: обычный рабочий режим, яркость уже выставил touch/BOOT.
         alarmMode = ALARM_NONE;
+        alarmBlinking = false;
         Serial.printf("[%lu] Alarm: acknowledged\n", (unsigned long)millis());
         return;
+    }
+    if (alarmBlinking) {
+        // Без delay(): фаза считается от начала тревоги, подсветка меняется только на переходах.
+        uint32_t elapsed = millis() - alarmStart;
+        bool lit;
+        if (elapsed >= ALARM_BLINK_MS) {
+            alarmBlinking = false;
+            lit = true;
+            Serial.printf("[%lu] Alarm: blink done, steady\n", (unsigned long)millis());
+        } else {
+            lit = (elapsed / ALARM_BLINK_HALF_MS) % 2 == 0;
+        }
+        if (lit != alarmBlinkLit) {
+            alarmBlinkLit = lit;
+            backlightSet(lit ? ALARM_BRIGHTNESS_PCT : 0);
+        }
     }
     if (alarmMode == ALARM_GRID_RESTORED && millis() - alarmStart > ALARM_RESTORED_SHOW_MS) {
         alarmMode = ALARM_NONE;
@@ -110,6 +133,7 @@ static void gridCheckState() {
                               NIGHT_FROM_HOUR, NIGHT_TO_HOUR);
                 if (alarmMode != ALARM_NONE) {
                     alarmMode = ALARM_NONE;
+                    alarmBlinking = false;
                     backlightSet(0);
                     Serial.printf("[%lu] Alarm: off, backlight off\n", (unsigned long)millis());
                 }
